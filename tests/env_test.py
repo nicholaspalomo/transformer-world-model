@@ -1,6 +1,7 @@
 """Unit test for Brax environment wrapping and vector tokenization."""
 
 import unittest
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -11,7 +12,6 @@ from twm.utils.buffer import TrajectoryReplayBuffer
 
 
 class TestEnvironmentAndTokenizer(unittest.TestCase):
-
     def test_brax_wrapper_reset_step(self):
         env = BraxEnvWrapper(env_name="ant")
         key = jax.random.PRNGKey(0)

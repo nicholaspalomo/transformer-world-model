@@ -6,10 +6,18 @@ Can render to:
 2. Interactive 3D HTML Viewer saved to anymal_rollout.html
 """
 
-import os
 import argparse
+import os
+
 import jax
 import jax.numpy as jnp
+import matplotlib
+
+if "DISPLAY" in os.environ:
+    try:
+        matplotlib.use("TkAgg")
+    except Exception:
+        pass
 import matplotlib.pyplot as plt
 
 from twm.envs.anymal_env import ANYmalBEnv
@@ -17,35 +25,54 @@ from twm.utils.prng import PRNGSequence
 
 try:
     from brax.io import html
+
     _HAS_HTML = True
 except ImportError:
     _HAS_HTML = False
 
 
-def visualize_anymal(num_steps: int = 50, html_out: str = "anymal_rollout.html", headless: bool = False):
+# LINT.IfChange(anymal_vis)
+def visualize_anymal(
+    num_steps: int = 50, html_out: str = "anymal_rollout.html", headless: bool = False
+):
     print("=== Launching ANYmal B Robot Simulation in Brax ===")
-    env = ANYmalBEnv(backend="generalized")
+    env = ANYmalBEnv(backend="positional")
     prng = PRNGSequence(seed=42)
 
-    state, obs = env.reset(prng.next())
+    state = env.reset(prng.next())
+    # LINT.ThenChange(//twm/envs/anymal_env.py:env_specs, //Makefile:env_targets)
+    step_fn = jax.jit(env.step)
     rollout_pipeline_states = [state.pipeline_state]
-    joint_angles = [obs[:12]]
+    joint_angles = [state.obs[:12]]
     torso_heights = [state.pipeline_state.x.pos[0, 2]]
 
     print(f"Stepping ANYmal B physics simulation for {num_steps} steps...")
     for step in range(num_steps):
         # Apply sinusoidal nominal walking pattern across legs
         t = step * 0.1
-        sin_act = jnp.array([
-            0.0, jnp.sin(t), -jnp.sin(t),        # LF
-            0.0, jnp.sin(t + jnp.pi), -jnp.sin(t + jnp.pi), # RF
-            0.0, -jnp.sin(t), jnp.sin(t),        # LH
-            0.0, -jnp.sin(t + jnp.pi), jnp.sin(t + jnp.pi), # RH
-        ]) * 0.4
+        sin_act = (
+            jnp.array(
+                [
+                    0.0,
+                    jnp.sin(t),
+                    -jnp.sin(t),  # LF
+                    0.0,
+                    jnp.sin(t + jnp.pi),
+                    -jnp.sin(t + jnp.pi),  # RF
+                    0.0,
+                    -jnp.sin(t),
+                    jnp.sin(t),  # LH
+                    0.0,
+                    -jnp.sin(t + jnp.pi),
+                    jnp.sin(t + jnp.pi),  # RH
+                ]
+            )
+            * 0.4
+        )
 
-        state, obs, reward, done, metrics = env.step(state, sin_act, prng.next())
+        state = step_fn(state, sin_act)
         rollout_pipeline_states.append(state.pipeline_state)
-        joint_angles.append(obs[:12])
+        joint_angles.append(state.obs[:12])
         torso_heights.append(state.pipeline_state.x.pos[0, 2])
 
     # 1. Generate 3D Interactive HTML Visualization
@@ -56,14 +83,14 @@ def visualize_anymal(num_steps: int = 50, html_out: str = "anymal_rollout.html",
             with open(html_out, "w") as f:
                 f.write(html_content)
             print(f"✓ Saved 3D Interactive HTML viewer to '{html_out}'.")
-            print(f"  (Open in browser or view inside VNC desktop/noVNC: http://localhost:6080)")
+            print("  (Open in browser or view inside VNC desktop/noVNC: http://localhost:6080)")
         except Exception as e:
             print(f"HTML render notice: {e}")
 
     # 2. Display live GUI figure window (renders on VNC display :1)
     print("Generating joint kinematics and torso height visualization...")
     joint_angles = jnp.stack(joint_angles, axis=0)  # [T, 12]
-    
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     ax1.plot(joint_angles[:, :3], label=["LF_HAA", "LF_HFE", "LF_KFE"])
     ax1.set_ylabel("Joint Angle (rad)")
@@ -97,7 +124,9 @@ def visualize_anymal(num_steps: int = 50, html_out: str = "anymal_rollout.html",
 def main():
     parser = argparse.ArgumentParser(description="Visualize ANYmal B in Brax on VNC display.")
     parser.add_argument("--num_steps", type=int, default=30, help="Simulation steps")
-    parser.add_argument("--html_out", type=str, default="anymal_rollout.html", help="HTML 3D output file")
+    parser.add_argument(
+        "--html_out", type=str, default="anymal_rollout.html", help="HTML 3D output file"
+    )
     parser.add_argument("--headless", action="store_true", help="Run without popping GUI window")
     args = parser.parse_args()
 

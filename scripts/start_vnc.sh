@@ -25,31 +25,64 @@ for hdir in /root /home/*; do
     fi
 done
 
+# --- Configure Mesa software rendering for OpenGL/MJX/Brax ---
+export LIBGL_ALWAYS_SOFTWARE=1
+export LIBGL_ALWAYS_INDIRECT=0
+export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+export GALLIUM_DRIVER=llvmpipe
+export MESA_GL_VERSION_OVERRIDE=3.3
+
 # Clean up any residual lock files
-rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
+rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
 
 # 1. Start Xvfb virtual framebuffer on display :1
-Xvfb :1 -screen 0 1280x800x24 &
+echo "Starting Xvfb display on :1 (1920x1080)..."
+Xvfb :1 -screen 0 1920x1080x24 +iglx >/tmp/xvfb.log 2>&1 &
 export DISPLAY=:1
 sleep 1
 
 # 2. Start Openbox Window Manager
-openbox-session &
-sleep 1
+echo "Starting Openbox window manager..."
+openbox-session >/dev/null 2>&1 &
+sleep 0.5
 
 # 3. Start x11vnc server on port 5900
-x11vnc -display :1 -forever -nopw -shared -rfbport 5900 -bg
+echo "Starting x11vnc on port 5900..."
+x11vnc -display :1 -forever -nopw -shared -rfbport 5900 -noxdamage -bg -o /tmp/x11vnc.log >/dev/null 2>&1 || true
+sleep 0.5
 
-# 4. Start noVNC web interface on port 6080 if available
-if command -v websockify > /dev/null && [ -d /usr/share/novnc ]; then
-    echo "Starting noVNC web interface on port 6080..."
-    websockify --web /usr/share/novnc/ 6080 localhost:5900 &
+# 4. Start noVNC web interface on port 6080 with auto-connect
+NOVNC_DIR="/usr/share/novnc"
+if [ ! -d "$NOVNC_DIR" ]; then
+    NOVNC_DIR="/usr/share/noVNC"
+fi
+
+if command -v websockify > /dev/null && [ -d "$NOVNC_DIR" ]; then
+    echo "Starting noVNC websockify on port 6080..."
+    # Create auto-redirect index.html so opening http://localhost:6080/ immediately auto-connects
+    cat <<'EOF' > "${NOVNC_DIR}/index.html"
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TWM Simulation Desktop</title>
+  <meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=remote">
+  <script>window.location.replace("vnc.html?autoconnect=true&resize=remote");</script>
+</head>
+<body style="background:#1a1a2e;color:#e0e0e0;font-family:sans-serif;text-align:center;padding-top:20%;">
+  <h2>Connecting to Simulation Desktop...</h2>
+  <p><a style="color:#00d2ff;" href="vnc.html?autoconnect=true&resize=remote">Click here if not redirected automatically</a></p>
+</body>
+</html>
+EOF
+    websockify --web "${NOVNC_DIR}" 6080 localhost:5900 >/tmp/novnc.log 2>&1 &
+    sleep 0.5
 fi
 
 echo "=========================================================="
-echo "VNC server running on port 5900 (Display :1)"
-echo "noVNC web browser available on port 6080"
-echo "Connect via SSH forwarding: ssh -L 5903:localhost:5903 -L 6082:localhost:6082 user@remote"
+echo "🖥️  VNC Desktop running on port 5900 (Display :1)"
+echo "🌐 noVNC Web UI Auto-Connect ready at:"
+echo "   http://localhost:6080/"
 echo "=========================================================="
 
 # Keep container alive

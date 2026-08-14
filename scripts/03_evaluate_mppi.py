@@ -2,7 +2,7 @@
 """Milestone 4: Evaluate MPPI Planner with jax.lax.scan vectorization in Brax env."""
 
 import argparse
-import jax
+
 import jax.numpy as jnp
 from flax import nnx
 
@@ -13,15 +13,21 @@ from twm.utils.prng import PRNGSequence
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Milestone 4: MPPI Planner Evaluation in Brax Environment.")
+    # LINT.IfChange(env_args)
+    parser = argparse.ArgumentParser(
+        description="Milestone 4: MPPI Planner Evaluation in Brax Environment."
+    )
     parser.add_argument("--env_name", type=str, default="ant", help="Brax environment name")
     parser.add_argument("--num_samples", type=int, default=100, help="MPPI trajectory samples N")
     parser.add_argument("--horizon", type=int, default=10, help="Planning horizon H")
-    parser.add_argument("--eval_steps", type=int, default=5, help="Number of closed-loop control steps")
+    parser.add_argument(
+        "--eval_steps", type=int, default=5, help="Number of closed-loop control steps"
+    )
     args = parser.parse_args()
 
-    print(f"=== Milestone 4: MPPI Planning with Vectorized jax.lax.scan Rollouts ===")
+    print("=== Milestone 4: MPPI Planning with Vectorized jax.lax.scan Rollouts ===")
     env = BraxEnvWrapper(env_name=args.env_name)
+    # LINT.ThenChange(//twm/envs/brax_wrapper.py:env_registry, //Makefile:env_targets)
     prng = PRNGSequence(seed=42)
 
     # Initialize World Model
@@ -40,20 +46,26 @@ def main():
     def model_forward(states, actions):
         return model(states, actions)
 
+    # LINT.IfChange(mppi_eval)
     planner = MPPIPlanner(
         model_forward_fn=model_forward,
         action_dim=env.action_size,
         horizon=args.horizon,
         num_samples=args.num_samples,
     )
+    # LINT.ThenChange(//twm/planner/mppi.py:mppi_planner)
 
     state, obs = env.reset(prng.next())
     mean_actions = jnp.zeros((args.horizon, env.action_size), dtype=jnp.float32)
 
-    print(f"Executing closed-loop control for {args.eval_steps} steps (N={args.num_samples} trajectories per step)...")
+    print(
+        f"Executing closed-loop control for {args.eval_steps} steps (N={args.num_samples} trajectories per step)..."
+    )
     for step in range(args.eval_steps):
         opt_action, mean_actions, costs = planner.plan(prng.next(), obs, mean_actions)
-        print(f"Control Step {step + 1}: Min Trajectory Cost = {jnp.min(costs):.4f}, Optimal Action Mean = {opt_action.mean():.4f}")
+        print(
+            f"Control Step {step + 1}: Min Trajectory Cost = {jnp.min(costs):.4f}, Optimal Action Mean = {opt_action.mean():.4f}"
+        )
 
         # Step real environment with optimal action
         state, obs, reward, done, _ = env.step(state, opt_action, prng.next())

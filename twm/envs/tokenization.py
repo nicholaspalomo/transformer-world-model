@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 
+# LINT.IfChange(token_projection)
 class VectorTokenizer(nnx.Module):
     """Embeds continuous state and action vectors into shared latent token space."""
 
@@ -41,3 +42,6 @@ class VectorTokenizer(nnx.Module):
         tokens = tokens.at[:, 0::2, :].set(s_tokens)
         tokens = tokens.at[:, 1::2, :].set(a_tokens)
         return tokens
+
+
+# LINT.ThenChange(//twm/models/transformer.py:token_embed, //twm/models/heads.py:dynamics_head)

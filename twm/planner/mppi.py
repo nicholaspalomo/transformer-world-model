@@ -1,10 +1,12 @@
 """Model Predictive Path Integral (MPPI) planner compiled with jax.lax.scan."""
 
-from typing import Tuple, Callable
+from collections.abc import Callable
+
 import jax
 import jax.numpy as jnp
 
 
+# LINT.IfChange(mppi_planner)
 class MPPIPlanner:
     """Vectorized MPPI Planner using JAX scan for fast parallel dynamics rollouts."""
 
@@ -31,7 +33,7 @@ class MPPIPlanner:
         rng: jax.Array,
         current_state: jax.Array,
         mean_actions: jax.Array,
-    ) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         """Optimize trajectory actions using sampled perturbations and JAX scan auto-regression.
 
         Args:
@@ -46,9 +48,10 @@ class MPPIPlanner:
         rng_noise, rng_eval = jax.random.split(rng)
 
         # 1. Sample N trajectory action perturbations
-        noise = jax.random.normal(
-            rng_noise, (self.num_samples, self.horizon, self.action_dim)
-        ) * self.noise_std
+        noise = (
+            jax.random.normal(rng_noise, (self.num_samples, self.horizon, self.action_dim))
+            * self.noise_std
+        )
         sampled_actions = mean_actions[None, :, :] + noise  # [N, H, Action_Dim]
         sampled_actions = jnp.clip(sampled_actions, -1.0, 1.0)
 
@@ -66,9 +69,7 @@ class MPPIPlanner:
         init_states = jnp.tile(current_state[None, :], (self.num_samples, 1))
         actions_time_first = sampled_actions.swapaxes(0, 1)  # [H, N, Action_Dim]
 
-        _, (rolled_states, rolled_rewards) = jax.lax.scan(
-            step_fn, init_states, actions_time_first
-        )
+        _, (rolled_states, rolled_rewards) = jax.lax.scan(step_fn, init_states, actions_time_first)
 
         # Swap back time and sample dimensions -> [N, H, State_Dim], [N, H]
         rolled_states = rolled_states.swapaxes(0, 1)
@@ -89,3 +90,6 @@ class MPPIPlanner:
 
         optimal_action = new_mean_actions[0]
         return optimal_action, new_mean_actions, costs
+
+
+# LINT.ThenChange(//twm/planner/cost_funcs.py:trajectory_cost, //scripts/03_evaluate_mppi.py:mppi_eval)

@@ -1,11 +1,11 @@
 """JAX-native trajectory replay buffer integration for sequence sampling."""
 
-from typing import Dict, Tuple
 import jax
 import jax.numpy as jnp
 
 try:
-    import flashbax as fbx
+    import flashbax as fbx  # noqa: F401
+
     _HAS_FLASHBAX = True
 except ImportError:
     _HAS_FLASHBAX = False
@@ -28,7 +28,9 @@ class TrajectoryReplayBuffer:
         self.ptr = 0
         self.size = 0
 
-    def add(self, state: jax.Array, action: jax.Array, reward: float, next_state: jax.Array, done: float):
+    def add(
+        self, state: jax.Array, action: jax.Array, reward: float, next_state: jax.Array, done: float
+    ):
         """Add single step transition."""
         idx = self.ptr
         self.states = self.states.at[idx].set(state)
@@ -40,7 +42,9 @@ class TrajectoryReplayBuffer:
         self.ptr = (self.ptr + 1) % self.max_capacity
         self.size = min(self.size + 1, self.max_capacity)
 
-    def sample_sequences(self, rng: jax.Array, batch_size: int = 32, seq_len: int = 32) -> Dict[str, jax.Array]:
+    def sample_sequences(
+        self, rng: jax.Array, batch_size: int = 32, seq_len: int = 32
+    ) -> dict[str, jax.Array]:
         """Sample batch of sequential trajectories of length seq_len.
 
         Returns dict:
@@ -58,11 +62,11 @@ class TrajectoryReplayBuffer:
         def get_seq(start_idx):
             idx_range = start_idx + jnp.arange(seq_len)
             return {
-                'states': self.states[idx_range],
-                'actions': self.actions[idx_range],
-                'rewards': self.rewards[idx_range],
-                'next_states': self.next_states[idx_range],
-                'dones': self.dones[idx_range],
+                "states": self.states[idx_range],
+                "actions": self.actions[idx_range],
+                "rewards": self.rewards[idx_range],
+                "next_states": self.next_states[idx_range],
+                "dones": self.dones[idx_range],
             }
 
         return jax.vmap(get_seq)(start_indices)

@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-dev \
     python-is-python3 \
+    python3-tk \
     git \
     openssh-client \
     bash-completion \
@@ -38,7 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     less \
     locales \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 
 # Install Bazelisk as /usr/local/bin/bazel
 RUN curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /usr/local/bin/bazel \

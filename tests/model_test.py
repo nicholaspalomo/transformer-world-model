@@ -1,6 +1,7 @@
 """Unit test for Causal Transformer World Model forward pass and mask shape."""
 
 import unittest
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -10,7 +11,6 @@ from twm.models.transformer import TransformerWorldModel
 
 
 class TestTransformerModel(unittest.TestCase):
-
     def test_causal_attention_shapes(self):
         rngs = nnx.Rngs(params=jax.random.PRNGKey(0))
         attn = CausalSelfAttention(embed_dim=64, num_heads=4, rngs=rngs)

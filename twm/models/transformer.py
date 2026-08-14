@@ -1,8 +1,6 @@
 """Transformer World Model architecture predicting dynamics auto-regressively."""
 
-from typing import Tuple
 import jax
-import jax.numpy as jnp
 from flax import nnx
 
 from twm.envs.tokenization import VectorTokenizer
@@ -20,7 +18,7 @@ class TransformerBlock(nnx.Module):
         self.mlp = nnx.Sequential(
             nnx.Linear(embed_dim, mlp_dim, rngs=rngs),
             nnx.gelu,
-            nnx.Linear(mlp_dim, embed_dim, rngs=rngs)
+            nnx.Linear(mlp_dim, embed_dim, rngs=rngs),
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -29,6 +27,7 @@ class TransformerBlock(nnx.Module):
         return x
 
 
+# LINT.IfChange(transformer_arch)
 class TransformerWorldModel(nnx.Module):
     """Causal Transformer World Model for vector sequence dynamics prediction."""
 
@@ -49,20 +48,25 @@ class TransformerWorldModel(nnx.Module):
         self.embed_dim = embed_dim
         self.max_seq_len = max_seq_len
 
+        # LINT.IfChange(token_embed)
         self.tokenizer = VectorTokenizer(state_dim, action_dim, embed_dim, rngs=rngs)
+        # LINT.ThenChange(//twm/envs/tokenization.py:token_projection)
 
         # Learnable positional embeddings
-        self.pos_embed = nnx.Param(jax.random.normal(rngs.params(), (1, max_seq_len, embed_dim)) * 0.02)
+        self.pos_embed = nnx.Param(
+            jax.random.normal(rngs.params(), (1, max_seq_len, embed_dim)) * 0.02
+        )
 
         list_factory = getattr(nnx, "List", list)
-        self.blocks = list_factory([
-            TransformerBlock(embed_dim, num_heads, mlp_dim, rngs=rngs)
-            for _ in range(num_layers)
-        ])
+        self.blocks = list_factory(
+            [TransformerBlock(embed_dim, num_heads, mlp_dim, rngs=rngs) for _ in range(num_layers)]
+        )
         self.final_norm = nnx.LayerNorm(embed_dim, rngs=rngs)
         self.heads = DynamicsHead(embed_dim, state_dim, mlp_dim, rngs=rngs)
 
-    def __call__(self, states: jax.Array, actions: jax.Array) -> Tuple[jax.Array, jax.Array, jax.Array]:
+    def __call__(
+        self, states: jax.Array, actions: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         """Forward pass over continuous state and action sequences.
 
         Input:
@@ -95,3 +99,6 @@ class TransformerWorldModel(nnx.Module):
         pred_continues = self.heads.predict_continue(action_token_features)
 
         return pred_next_states, pred_rewards, pred_continues
+
+
+# LINT.ThenChange(//twm/models/attention.py:attention_block, //twm/models/heads.py:dynamics_head, //twm/envs/tokenization.py:token_projection)

@@ -2,8 +2,8 @@
 """Milestone 1: Brax Data Collection Pipeline and Sequence Buffer sampling."""
 
 import argparse
+
 import jax
-import jax.numpy as jnp
 
 from twm.envs.brax_wrapper import BraxEnvWrapper
 from twm.utils.buffer import TrajectoryReplayBuffer
@@ -11,15 +11,23 @@ from twm.utils.prng import PRNGSequence
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Milestone 1: Collect trajectories from Brax into Replay Buffer.")
+    # LINT.IfChange(env_args)
+    parser = argparse.ArgumentParser(
+        description="Milestone 1: Collect trajectories from Brax into Replay Buffer."
+    )
     parser.add_argument("--env_name", type=str, default="ant", help="Brax environment name")
-    parser.add_argument("--num_steps", type=int, default=1000, help="Number of exploration steps to collect")
+    parser.add_argument(
+        "--num_steps", type=int, default=1000, help="Number of exploration steps to collect"
+    )
     parser.add_argument("--seq_len", type=int, default=32, help="Sequence window length K")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for sequence sampling test")
+    parser.add_argument(
+        "--batch_size", type=int, default=16, help="Batch size for sequence sampling test"
+    )
     args = parser.parse_args()
 
     print(f"=== Milestone 1: Initializing Brax Environment ({args.env_name}) ===")
     env = BraxEnvWrapper(env_name=args.env_name)
+    # LINT.ThenChange(//twm/envs/brax_wrapper.py:env_registry, //Makefile:env_targets)
     prng = PRNGSequence(seed=42)
 
     buffer = TrajectoryReplayBuffer(
@@ -31,7 +39,7 @@ def main():
     state, obs = env.reset(prng.next())
 
     print(f"Collecting {args.num_steps} exploratory transitions into Flashbax/JAX buffer...")
-    for step in range(args.num_steps):
+    for _ in range(args.num_steps):
         action_key = prng.next()
         step_key = prng.next()
 
@@ -48,7 +56,9 @@ def main():
     print(f"Buffer populated with {buffer.size} transitions.")
     print(f"Testing sequence sampling with window size K = {args.seq_len}...")
 
-    sampled_batch = buffer.sample_sequences(prng.next(), batch_size=args.batch_size, seq_len=args.seq_len)
+    sampled_batch = buffer.sample_sequences(
+        prng.next(), batch_size=args.batch_size, seq_len=args.seq_len
+    )
     print("Sampled sequence shapes:")
     print("  States:", sampled_batch["states"].shape)
     print("  Actions:", sampled_batch["actions"].shape)

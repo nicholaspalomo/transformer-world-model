@@ -1,3 +1,4 @@
+# LINT.IfChange(env_config)
 env_name: "ant"
 backend: "positional"
 episode_length: 1000
@@ -6,3 +7,4 @@ seed: 42
 batch_size: 64
 sequence_length: 32
 num_env_steps: 100000
+# LINT.ThenChange(//twm/envs/brax_wrapper.py:env_registry)

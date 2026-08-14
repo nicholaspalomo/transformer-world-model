@@ -1,3 +1,4 @@
+# LINT.IfChange(dependencies)
 # JAX Core and Neural Networks
 jax>=0.4.20
 jaxlib>=0.4.20
@@ -18,5 +19,12 @@ wandb>=0.16.0
 matplotlib>=3.7.0
 pyvirtualdisplay>=3.0
 pillow>=10.0.0
-# Testing & Development
+
+# Testing, Google3 Linters & Code Formatting
 pytest>=7.0.0
+ruff>=0.4.0
+black>=24.0.0
+flake8>=7.0.0
+yapf>=0.40.0
+pre-commit>=3.7.0
+# LINT.ThenChange(//MODULE.bazel:dependencies, //pyproject.toml:dependencies)

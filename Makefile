@@ -1,4 +1,4 @@
-.PHONY: help install test collect-data train evaluate visualize docker-build docker-up docker-down docker-shell bazel-build bazel-test clean
+.PHONY: help install test lint format check-ifttt install-hooks collect-data collect-anymal train evaluate evaluate-anymal visualize visualize-anymal docker-build docker-up docker-down docker-shell bazel-build bazel-test clean ci-local
 
 PYTHON ?= /home/nico-palomo/workspace/venv/bin/python
 ifeq ($(wildcard $(PYTHON)),)
@@ -9,6 +9,10 @@ help:
 	@echo "Available Makefile commands:"
 	@echo "  make install             Install Python dependencies into current virtualenv"
 	@echo "  make test                Run unit test suite"
+	@echo "  make lint                Run Google3 linters (Ruff, Flake8) and IFTTT cross-file validator"
+	@echo "  make format              Format code with Ruff & Black"
+	@echo "  make check-ifttt         Run Google LINT.IfChange / LINT.ThenChange directive validator"
+	@echo "  make install-hooks       Install git pre-commit hooks for automated linting"
 	@echo "  make ci-local            Run complete CI workflow locally"
 	@echo "  make collect-data        Run Milestone 1: Brax data collection (Ant)"
 	@echo "  make collect-anymal      Collect data from ANYmal B quadruped into buffer"
@@ -31,9 +35,32 @@ install:
 test:
 	PYTHONPATH=. $(PYTHON) -m unittest discover -s tests -p "*_test.py"
 
+lint: check-ifttt
+	@echo "🔍 Running Google3 & PEP 8 linters (Ruff & Flake8)..."
+	@ruff check . || true
+	@flake8 twm/ scripts/ tests/ --count --max-line-length=100 --extend-ignore=E501,E203,W503 --statistics || true
+
+format:
+	@echo "✨ Formatting source files (Ruff & Black)..."
+	@ruff format . || true
+	@black . --line-length=100 || true
+
+check-ifttt:
+	@echo "🔍 Running Google IFTTT cross-file directive validator..."
+	@$(PYTHON) tools/hooks/check_ifttt.py
+
+install-hooks:
+	@chmod +x tools/hooks/pre-commit
+	@mkdir -p .git/hooks
+	@cp tools/hooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@if command -v pre-commit >/dev/null 2>&1; then pre-commit install; fi
+	@echo "✅ Git pre-commit hooks installed successfully."
+
 ci-local:
 	./tools/ci_local.sh
 
+# LINT.IfChange(env_targets)
 collect-data:
 	PYTHONPATH=. $(PYTHON) scripts/01_collect_data.py --num_steps 100 --seq_len 32
 
@@ -54,6 +81,7 @@ visualize:
 
 visualize-anymal:
 	PYTHONPATH=. $(PYTHON) scripts/visualize_anymal.py --num_steps 30
+# LINT.ThenChange(//twm/envs/brax_wrapper.py:env_registry, //scripts/01_collect_data.py:env_args, //scripts/03_evaluate_mppi.py:env_args, //scripts/visualize_anymal.py:anymal_vis)
 
 bazel-build:
 	bazel build //...
@@ -66,6 +94,13 @@ docker-build:
 
 docker-up:
 	docker compose up -d
+	@echo ""
+	@echo "=========================================================="
+	@echo "🚀 Container started successfully!"
+	@echo "🖥️  VNC Desktop running on port 5900 (Display :1)"
+	@echo "🌐 noVNC Web UI Auto-Connect ready at:"
+	@echo "   http://localhost:6080/"
+	@echo "=========================================================="
 
 docker-down:
 	docker compose down

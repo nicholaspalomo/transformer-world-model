@@ -4,7 +4,10 @@ import jax
 import jax.numpy as jnp
 
 
-def trajectory_cost_fn(predicted_states: jax.Array, predicted_rewards: jax.Array, gamma: float = 0.99) -> jax.Array:
+# LINT.IfChange(trajectory_cost)
+def trajectory_cost_fn(
+    predicted_states: jax.Array, predicted_rewards: jax.Array, gamma: float = 0.99
+) -> jax.Array:
     """Compute trajectory cost from predicted rewards over horizon H.
 
     Input:
@@ -19,3 +22,6 @@ def trajectory_cost_fn(predicted_states: jax.Array, predicted_rewards: jax.Array
 
     # Cost is negative return (MPPI minimizes cost)
     return -returns
+
+
+# LINT.ThenChange(//twm/planner/mppi.py:mppi_planner)

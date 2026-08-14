@@ -5,11 +5,16 @@ import jax.numpy as jnp
 from flax import nnx
 
 
+# LINT.IfChange(attention_block)
 class CausalSelfAttention(nnx.Module):
     """Causal Multi-Head Self-Attention with strict lower-triangular mask."""
 
-    def __init__(self, embed_dim: int, num_heads: int, dropout_rate: float = 0.0, *, rngs: nnx.Rngs):
-        assert embed_dim % num_heads == 0, f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
+    def __init__(
+        self, embed_dim: int, num_heads: int, dropout_rate: float = 0.0, *, rngs: nnx.Rngs
+    ):
+        assert (
+            embed_dim % num_heads == 0
+        ), f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
@@ -54,3 +59,6 @@ class CausalSelfAttention(nnx.Module):
         output = output.swapaxes(1, 2).reshape(batch_size, seq_len, embed_dim)
 
         return self.out_proj(output)
+
+
+# LINT.ThenChange(//twm/models/transformer.py:transformer_arch)

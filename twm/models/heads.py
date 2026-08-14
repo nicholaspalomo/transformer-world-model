@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 
+# LINT.IfChange(dynamics_head)
 class DynamicsHead(nnx.Module):
     """MLP prediction heads mapping latent transformer representations to environmental state & reward transitions."""
 
@@ -12,17 +13,13 @@ class DynamicsHead(nnx.Module):
         self.state_head = nnx.Sequential(
             nnx.Linear(embed_dim, mlp_dim, rngs=rngs),
             nnx.gelu,
-            nnx.Linear(mlp_dim, state_dim, rngs=rngs)
+            nnx.Linear(mlp_dim, state_dim, rngs=rngs),
         )
         self.reward_head = nnx.Sequential(
-            nnx.Linear(embed_dim, mlp_dim, rngs=rngs),
-            nnx.gelu,
-            nnx.Linear(mlp_dim, 1, rngs=rngs)
+            nnx.Linear(embed_dim, mlp_dim, rngs=rngs), nnx.gelu, nnx.Linear(mlp_dim, 1, rngs=rngs)
         )
         self.continue_head = nnx.Sequential(
-            nnx.Linear(embed_dim, mlp_dim, rngs=rngs),
-            nnx.gelu,
-            nnx.Linear(mlp_dim, 1, rngs=rngs)
+            nnx.Linear(embed_dim, mlp_dim, rngs=rngs), nnx.gelu, nnx.Linear(mlp_dim, 1, rngs=rngs)
         )
 
     def predict_state(self, hidden_features: jax.Array) -> jax.Array:
@@ -37,3 +34,6 @@ class DynamicsHead(nnx.Module):
         """Predict discount / continuation probability."""
         logits = jnp.squeeze(self.continue_head(hidden_features), axis=-1)
         return jax.nn.sigmoid(logits)
+
+
+# LINT.ThenChange(//twm/models/transformer.py:transformer_arch, //twm/envs/tokenization.py:token_projection)

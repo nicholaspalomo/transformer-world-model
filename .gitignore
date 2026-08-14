@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Bazel outputs
+bazel-*
+
+# Generated simulation & rollout artifacts
+*.png
+anymal_rollout.html
+rollout_comparison.png
+anymal_kinematics.png

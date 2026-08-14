@@ -1,6 +1,7 @@
 """Unit test for MPPI Planner vectorized trajectory rollouts."""
 
 import unittest
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -10,7 +11,6 @@ from twm.planner.mppi import MPPIPlanner
 
 
 class TestMPPIPlanner(unittest.TestCase):
-
     def test_mppi_plan_execution(self):
         rngs = nnx.Rngs(params=jax.random.PRNGKey(0))
         model = TransformerWorldModel(

@@ -28,7 +28,7 @@ def visualize_rollouts():
         actions.append(a)
 
     real_states = jnp.stack(real_states, axis=0)  # [T+1, State_Dim]
-    actions = jnp.stack(actions, axis=0)          # [T, Action_Dim]
+    actions = jnp.stack(actions, axis=0)  # [T, Action_Dim]
 
     rngs = nnx.Rngs(params=prng.next())
     model = TransformerWorldModel(
@@ -46,7 +46,13 @@ def visualize_rollouts():
 
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(real_states[1:, 0], label="Ground Truth State[0]", color="blue", linewidth=2)
-    ax.plot(imagined_states[:, 0], label="Imagined World Model State[0]", color="orange", linestyle="--", linewidth=2)
+    ax.plot(
+        imagined_states[:, 0],
+        label="Imagined World Model State[0]",
+        color="orange",
+        linestyle="--",
+        linewidth=2,
+    )
     ax.set_title("Brax Ant Physics vs Transformer World Model Trajectory Rollout")
     ax.set_xlabel("Horizon Step")
     ax.set_ylabel("State Dimension 0")

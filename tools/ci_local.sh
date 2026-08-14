@@ -11,9 +11,11 @@ echo "=========================================================="
 echo "🚀 Running Local CI Emulator (GitHub Actions Validation)"
 echo "=========================================================="
 
-# 1. Host / Local Environment Test
+# 1. IFTTT and Google3 Linting Validation
 echo ""
-echo "=== Step 1: Running Local Unit Tests & Dry-Runs ==="
+echo "=== Step 1: Running Google IFTTT Directives & Code Linters ==="
+python3 tools/hooks/check_ifttt.py
+
 if [ -f "${SCRIPT_DIR}/venv/bin/python" ]; then
     PYTHON_BIN="${SCRIPT_DIR}/venv/bin/python"
 elif [ -f "/home/nico-palomo/workspace/venv/bin/python" ]; then
@@ -23,6 +25,12 @@ else
 fi
 
 echo "Using Python: ${PYTHON_BIN}"
+if command -v ruff >/dev/null 2>&1; then
+    ruff check .
+fi
+
+echo ""
+echo "=== Step 2: Running Local Unit Tests ==="
 PYTHONPATH=. ${PYTHON_BIN} -m unittest discover -s tests -p "*_test.py" -v
 
 echo ""
