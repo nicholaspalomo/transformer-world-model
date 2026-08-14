@@ -1,0 +1,58 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "envs",
+    srcs = [
+        "envs/__init__.py",
+        "envs/anymal_env.py",
+        "envs/brax_wrapper.py",
+        "envs/tokenization.py",
+    ],
+)
+
+py_library(
+    name = "models",
+    srcs = [
+        "models/__init__.py",
+        "models/attention.py",
+        "models/heads.py",
+        "models/transformer.py",
+    ],
+    deps = [
+        ":envs",
+    ],
+)
+
+py_library(
+    name = "planner",
+    srcs = [
+        "planner/__init__.py",
+        "planner/cost_funcs.py",
+        "planner/mppi.py",
+    ],
+    deps = [
+        ":models",
+    ],
+)
+
+py_library(
+    name = "utils",
+    srcs = [
+        "utils/__init__.py",
+        "utils/buffer.py",
+        "utils/prng.py",
+    ],
+)
+
+py_library(
+    name = "twm",
+    srcs = ["__init__.py"],
+    deps = [
+        ":envs",
+        ":models",
+        ":planner",
+        ":utils",
+    ],
+)

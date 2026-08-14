@@ -1,0 +1,8 @@
+env_name: "ant"
+backend: "positional"
+episode_length: 1000
+action_repeat: 1
+seed: 42
+batch_size: 64
+sequence_length: 32
+num_env_steps: 100000

@@ -1,0 +1,41 @@
+load("@rules_python//python:defs.bzl", "py_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+py_binary(
+    name = "01_collect_data",
+    srcs = ["01_collect_data.py"],
+    deps = [
+        "//twm:envs",
+        "//twm:utils",
+    ],
+)
+
+py_binary(
+    name = "02_train_model",
+    srcs = ["02_train_model.py"],
+    deps = [
+        "//twm:models",
+        "//twm:utils",
+    ],
+)
+
+py_binary(
+    name = "03_evaluate_mppi",
+    srcs = ["03_evaluate_mppi.py"],
+    deps = [
+        "//twm:envs",
+        "//twm:models",
+        "//twm:planner",
+        "//twm:utils",
+    ],
+)
+
+py_binary(
+    name = "visualize_anymal",
+    srcs = ["visualize_anymal.py"],
+    deps = [
+        "//twm:envs",
+        "//twm:utils",
+    ],
+)

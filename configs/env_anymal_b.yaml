@@ -1,0 +1,14 @@
+env_name: "anymal_b"
+robot_model: "anybotics_anymal_b"
+xml_path: "assets/anybotics_anymal_b/scene.xml"
+backend: "generalized"
+episode_length: 1000
+action_repeat: 1
+seed: 42
+batch_size: 64
+sequence_length: 32
+num_env_steps: 100000
+
+# Robot dimensions
+action_dim: 12      # 12 joint torque/position actuators
+observation_dim: 35 # Joint pos (12) + Joint vel (12) + Root height (1) + Quat (4) + LinVel (3) + AngVel (3)
