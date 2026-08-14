@@ -59,16 +59,16 @@ fi
 
 if command -v websockify > /dev/null && [ -d "$NOVNC_DIR" ]; then
     echo "Starting noVNC websockify on port 6080..."
-    # Symlink vnc.html to index.html for direct root navigation
-    ln -sf "${NOVNC_DIR}/vnc.html" "${NOVNC_DIR}/index.html" 2>/dev/null || true
+    # Symlink lightweight vnc_lite.html to index.html for instant direct connection
+    ln -sf "${NOVNC_DIR}/vnc_lite.html" "${NOVNC_DIR}/index.html" 2>/dev/null || true
     websockify --web "${NOVNC_DIR}" 6080 localhost:5900 >/tmp/novnc.log 2>&1 &
     sleep 0.5
 fi
 
 echo "=========================================================="
 echo "🖥️  VNC Desktop running on port 5900 (Display :1)"
-echo "🌐 noVNC Web UI Auto-Connect ready at:"
-echo "   http://localhost:6080/"
+echo "🌐 Lightweight noVNC Web UI ready at:"
+echo "   http://localhost:6080/vnc_lite.html?scale=true (or http://localhost:6080/)"
 echo "=========================================================="
 
 # Keep container alive

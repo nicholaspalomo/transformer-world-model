@@ -45,7 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN rm -rf /usr/share/novnc && \
     mkdir -p /usr/share/novnc && \
     curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz | tar -xz -C /usr/share/novnc --strip-components=1 && \
-    ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+    python3 -c "import re; c=open('/usr/share/novnc/app/ui.js').read(); c=re.sub(r'document\.getElementById\(([^)]+)\)\s*\.addEventListener', r'document.getElementById(\1)?.addEventListener', c).replace('settingElem.addEventListener', 'settingElem?.addEventListener'); open('/usr/share/novnc/app/ui.js','w').write(c)" && \
+    ln -sf /usr/share/novnc/vnc_lite.html /usr/share/novnc/index.html
 
 # Install Bazelisk as /usr/local/bin/bazel
 RUN curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /usr/local/bin/bazel \

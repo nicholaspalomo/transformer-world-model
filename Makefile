@@ -37,8 +37,8 @@ test:
 
 lint: check-ifttt
 	@echo "🔍 Running Google3 & PEP 8 linters (Ruff & Flake8)..."
-	@ruff check . || true
-	@flake8 twm/ scripts/ tests/ --count --max-line-length=100 --extend-ignore=E501,E203,W503 --statistics || true
+	@ruff check .
+	@flake8 twm/ scripts/ tests/ --count --max-line-length=100 --extend-ignore=E501,E203,W503 --statistics
 
 format:
 	@echo "✨ Formatting source files (Ruff & Black)..."
@@ -98,8 +98,8 @@ docker-up:
 	@echo "=========================================================="
 	@echo "🚀 Container started successfully!"
 	@echo "🖥️  VNC Desktop running on port 5900 (Display :1)"
-	@echo "🌐 noVNC Web UI Auto-Connect ready at:"
-	@echo "   http://localhost:6080/vnc.html (or http://localhost:6080/)"
+	@echo "🌐 Lightweight noVNC Web UI ready at:"
+	@echo "   http://localhost:6080/vnc_lite.html?scale=true (or http://localhost:6080/)"
 	@echo "=========================================================="
 
 docker-down:

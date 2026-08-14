@@ -119,7 +119,7 @@ make docker-shell
 
 ### 2. Connect to VNC / noVNC Web Desktop
 
-- **Web Browser (noVNC)**: Open **[http://localhost:6080/vnc.html](http://localhost:6080/vnc.html)** (or `http://localhost:6080/`) in your browser.
+- **Web Browser (noVNC)**: Open **[http://localhost:6080/vnc_lite.html?scale=true](http://localhost:6080/vnc_lite.html?scale=true)** (or `http://localhost:6080/`) in your browser.
 - **Desktop VNC Client**: Connect your VNC viewer (e.g., TigerVNC, RealVNC) to `localhost:5900` (Password: none).
 
 If connecting from a remote machine over SSH:

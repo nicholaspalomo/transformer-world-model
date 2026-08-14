@@ -7,20 +7,27 @@ set -e
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$REPO_ROOT"
 
+# Add local virtual environment to PATH if present
+if [ -d "$REPO_ROOT/../venv/bin" ]; then
+    export PATH="$REPO_ROOT/../venv/bin:$PATH"
+elif [ -d "$REPO_ROOT/.venv/bin" ]; then
+    export PATH="$REPO_ROOT/.venv/bin:$PATH"
+fi
+
 echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
 if [ -f "tools/hooks/check_ifttt.py" ]; then
     python3 tools/hooks/check_ifttt.py
 fi
 
-echo "🔍 Pre-Commit Hook: Running code formatter & linters..."
-if command -v make >/dev/null 2>&1; then
-    make format || true
-    make lint || true
-elif command -v docker >/dev/null 2>&1 && docker compose ps --status running | grep -q "twm_dev"; then
-    docker compose exec -T twm_dev make format || true
-    docker compose exec -T twm_dev make lint || true
+echo "🔍 Pre-Commit Hook: Running code formatters and Google3 linters..."
+if command -v ruff >/dev/null 2>&1 && command -v black >/dev/null 2>&1; then
+    make format
+    make lint
+elif command -v docker >/dev/null 2>&1 && docker ps | grep -q "transformer_world_model_dev"; then
+    docker exec transformer_world_model_dev make format
+    docker exec transformer_world_model_dev make lint
 else
-    echo "⚠️ Warning: 'make' or running dev container not found. Skipping auto-formatting."
+    echo "⚠️ Warning: 'ruff'/'black' not found in PATH and container is offline. Running check_ifttt only."
 fi
 
 # Automatically stage any formatting changes to files that were staged for commit

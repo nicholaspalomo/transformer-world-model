@@ -8,6 +8,7 @@ Can render to:
 
 import argparse
 import os
+import time
 
 import jax
 import jax.numpy as jnp
@@ -31,99 +32,186 @@ except ImportError:
     _HAS_HTML = False
 
 
-# LINT.IfChange(anymal_vis)
 def visualize_anymal(
-    num_steps: int = 200,
+    num_steps: int = 300,
     html_out: str = "anymal_rollout.html",
     headless: bool = False,
     pause_sec: float = 60.0,
 ):
-    print("=== Launching ANYmal B Robot Simulation in Brax ===")
+    print("=== Launching Continuous Rolling ANYmal B Robot Simulation in Brax ===")
+    # LINT.IfChange(anymal_vis)
     env = ANYmalBEnv(backend="positional")
     prng = PRNGSequence(seed=42)
 
     state = env.reset(prng.next())
-    # LINT.ThenChange(//twm/envs/anymal_env.py:env_specs, //Makefile:env_targets)
+    # LINT.ThenChange(//Makefile:env_targets)
     step_fn = jax.jit(env.step)
-    rollout_pipeline_states = [state.pipeline_state]
-    joint_angles = [state.obs[:12]]
-    torso_heights = [state.pipeline_state.x.pos[0, 2]]
 
-    print(f"Stepping ANYmal B physics simulation for {num_steps} steps...")
-    for step in range(num_steps):
-        # Apply sinusoidal nominal walking pattern across legs
-        t = step * 0.1
-        sin_act = (
-            jnp.array(
-                [
-                    0.0,
-                    jnp.sin(t),
-                    -jnp.sin(t),  # LF
-                    0.0,
-                    jnp.sin(t + jnp.pi),
-                    -jnp.sin(t + jnp.pi),  # RF
-                    0.0,
-                    -jnp.sin(t),
-                    jnp.sin(t),  # LH
-                    0.0,
-                    -jnp.sin(t + jnp.pi),
-                    jnp.sin(t + jnp.pi),  # RH
-                ]
-            )
-            * 0.4
-        )
+    try:
+        from brax.io import image as brax_image
 
-        state = step_fn(state, sin_act)
-        rollout_pipeline_states.append(state.pipeline_state)
-        joint_angles.append(state.obs[:12])
-        torso_heights.append(state.pipeline_state.x.pos[0, 2])
+        has_image = True
+    except Exception:
+        has_image = False
 
-    # 1. Generate 3D Interactive HTML Visualization
-    if _HAS_HTML and env.sys is not None:
-        print(f"Generating 3D interactive HTML animation -> {html_out}...")
+    # Initialize visualization figures & live rolling lines
+    fig = plt.figure(figsize=(14, 7))
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.2, 1])
+
+    # Left: Live 3D Simulation Viewport
+    ax_3d = fig.add_subplot(gs[:, 0])
+    ax_3d.axis("off")
+    ax_3d.set_title(
+        "ANYmal B Continuous 3D Simulation (Brax Physics)", fontsize=13, fontweight="bold"
+    )
+
+    initial_frame = None
+    if not headless and has_image and env.sys is not None and "DISPLAY" in os.environ:
         try:
-            html_content = html.render(env.sys, rollout_pipeline_states)
-            with open(html_out, "w") as f:
-                f.write(html_content)
-            print(f"✓ Saved 3D Interactive HTML viewer to '{html_out}'.")
-            print(
-                "  (Open in browser or view inside VNC desktop/noVNC: http://localhost:6080/vnc.html)"
+            initial_frames = brax_image.render_array(
+                env.sys, [state.pipeline_state], width=540, height=420
             )
-        except Exception as e:
-            print(f"HTML render notice: {e}")
+            initial_frame = initial_frames[0]
+        except Exception:
+            initial_frame = None
 
-    # 2. Display live GUI figure window (renders on VNC display :1)
-    print("Generating joint kinematics and torso height visualization...")
-    joint_angles = jnp.stack(joint_angles, axis=0)  # [T, 12]
+    if initial_frame is not None:
+        im_display = ax_3d.imshow(initial_frame)
+    else:
+        im_display = None
+        ax_3d.text(0.5, 0.5, "Live 3D Simulation Viewport", ha="center", va="center", fontsize=14)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-    ax1.plot(joint_angles[:, :3], label=["LF_HAA", "LF_HFE", "LF_KFE"])
+    # Right Top: Rolling Joint Kinematics
+    ax1 = fig.add_subplot(gs[0, 1])
+    (line_haa,) = ax1.plot([], [], label="LF_HAA", color="#1f77b4")
+    (line_hfe,) = ax1.plot([], [], label="LF_HFE", color="#ff7f0e")
+    (line_kfe,) = ax1.plot([], [], label="LF_KFE", color="#2ca02c")
     ax1.set_ylabel("Joint Angle (rad)")
-    ax1.set_title("ANYmal B Quadruped Kinematics & Locomotion Rollout")
-    ax1.legend(loc="upper right")
-    ax1.grid(True)
+    ax1.set_title("Live Quadruped Kinematics (LF Leg)", fontsize=11)
+    ax1.legend(loc="upper right", fontsize=9)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(-1.5, 1.5)
 
-    ax2.plot(torso_heights, color="crimson", linewidth=2, label="Torso Height (z)")
+    # Right Bottom: Rolling Torso Height
+    ax2 = fig.add_subplot(gs[1, 1], sharex=ax1)
+    (line_height,) = ax2.plot([], [], color="crimson", linewidth=2, label="Torso Height (z)")
     ax2.set_xlabel("Simulation Step")
     ax2.set_ylabel("Height (m)")
-    ax2.legend(loc="upper right")
-    ax2.grid(True)
+    ax2.legend(loc="upper right", fontsize=9)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylim(0.2, 0.7)
 
     plt.tight_layout()
-    plot_file = "anymal_kinematics.png"
-    plt.savefig(plot_file, dpi=150)
-    print(f"✓ Saved kinematics plot to '{plot_file}'.")
 
-    # If running with active display inside VNC (DISPLAY=:1), display window
+    # Track rolling telemetry
+    step_history = []
+    haa_history = []
+    hfe_history = []
+    kfe_history = []
+    height_history = []
+    all_pipeline_states = [state.pipeline_state]
+
+    global_step = 0
+    start_time = time.time()
+    chunk_size = 15
+
+    print(f"Streaming live continuous physics simulation (headless={headless})...")
+
     if "DISPLAY" in os.environ and not headless:
-        print(f"Displaying interactive window on {os.environ['DISPLAY']} for {pause_sec}s...")
         try:
             plt.show(block=False)
-            plt.pause(pause_sec)
         except Exception as e:
             print(f"Window display notice: {e}")
 
-    print("=== ANYmal B Visualization Complete ===")
+    max_steps = num_steps if headless else 10000000
+    while global_step < max_steps:
+        if not headless and pause_sec > 0 and (time.time() - start_time >= pause_sec):
+            break
+        chunk_states = []
+        for _ in range(chunk_size):
+            t = global_step * 0.1
+            sin_act = (
+                jnp.array(
+                    [
+                        0.0,
+                        jnp.sin(t),
+                        -jnp.sin(t),  # LF
+                        0.0,
+                        jnp.sin(t + jnp.pi),
+                        -jnp.sin(t + jnp.pi),  # RF
+                        0.0,
+                        -jnp.sin(t),
+                        jnp.sin(t),  # LH
+                        0.0,
+                        -jnp.sin(t + jnp.pi),
+                        jnp.sin(t + jnp.pi),  # RH
+                    ]
+                )
+                * 0.4
+            )
+
+            state = step_fn(state, sin_act)
+            chunk_states.append(state.pipeline_state)
+            all_pipeline_states.append(state.pipeline_state)
+
+            step_history.append(global_step)
+            haa_history.append(float(state.obs[0]))
+            hfe_history.append(float(state.obs[1]))
+            kfe_history.append(float(state.obs[2]))
+            height_history.append(float(state.pipeline_state.x.pos[0, 2]))
+
+            global_step += 1
+
+        # Render chunk frames
+        chunk_frames = []
+        if not headless and has_image and env.sys is not None and "DISPLAY" in os.environ:
+            try:
+                chunk_frames = brax_image.render_array(env.sys, chunk_states, width=540, height=420)
+            except Exception:
+                chunk_frames = []
+
+        # Stream chunk frames & update rolling line graphs
+        for i, frame in enumerate(chunk_frames):
+            if im_display is not None:
+                im_display.set_data(frame)
+
+            # Update rolling data window (last 150 steps)
+            curr_idx = len(step_history) - chunk_size + i + 1
+            start_window = max(0, curr_idx - 150)
+            xs = step_history[start_window:curr_idx]
+
+            line_haa.set_data(xs, haa_history[start_window:curr_idx])
+            line_hfe.set_data(xs, hfe_history[start_window:curr_idx])
+            line_kfe.set_data(xs, kfe_history[start_window:curr_idx])
+            line_height.set_data(xs, height_history[start_window:curr_idx])
+
+            if len(xs) > 1:
+                ax1.set_xlim(xs[0], xs[-1] + 5)
+
+            if "DISPLAY" in os.environ and not headless:
+                fig.canvas.draw_idle()
+                plt.pause(0.04)
+
+        if pause_sec > 0 and (time.time() - start_time >= pause_sec):
+            break
+
+    # Save final snapshot
+    plot_file = "anymal_kinematics.png"
+    plt.savefig(plot_file, dpi=150)
+    print(f"✓ Saved visual snapshot to '{plot_file}'.")
+
+    # Optionally save full trajectory HTML
+    if html_out and _HAS_HTML and env.sys is not None:
+        try:
+            html_content = html.render(
+                env.sys, all_pipeline_states[:: max(1, len(all_pipeline_states) // 200)]
+            )
+            with open(html_out, "w") as f:
+                f.write(html_content)
+        except Exception:
+            pass
+
+    print("=== ANYmal B Continuous Simulation Complete ===")
 
 
 def main():

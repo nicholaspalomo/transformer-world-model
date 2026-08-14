@@ -93,6 +93,89 @@ def check_file(rel_path):
     return errors
 
 
+def check_staged_ifttt():
+    """Validates that if an IfChange block was edited, all ThenChange target files are staged."""
+    import subprocess
+
+    try:
+        staged_files_proc = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+        )
+        if staged_files_proc.returncode != 0 or not staged_files_proc.stdout.strip():
+            return []
+        staged_files = set(staged_files_proc.stdout.strip().splitlines())
+    except Exception:
+        return []
+
+    errors = []
+    # Check diff for each staged file
+    for rel_path in staged_files:
+        full_path = os.path.join(REPO_ROOT, rel_path)
+        if not os.path.isfile(full_path):
+            continue
+
+        try:
+            diff_proc = subprocess.run(
+                ["git", "diff", "--cached", "-U0", rel_path],
+                capture_output=True,
+                text=True,
+                cwd=REPO_ROOT,
+            )
+            if diff_proc.returncode != 0 or not diff_proc.stdout:
+                continue
+            diff_text = diff_proc.stdout
+        except Exception:
+            continue
+
+        # Extract modified line numbers in new file (from @@ -a,b +c,d @@)
+        modified_lines = set()
+        for line in diff_text.splitlines():
+            if line.startswith("@@"):
+                m = re.search(r"\+(\d+)(?:,(\d+))?", line)
+                if m:
+                    start = int(m.group(1))
+                    count = int(m.group(2)) if m.group(2) is not None else 1
+                    for l_num in range(start, start + count):
+                        modified_lines.add(l_num)
+
+        if not modified_lines:
+            continue
+
+        # Parse IfChange blocks in the file
+        with open(full_path, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+        if_stack = []
+        for idx, line in enumerate(lines, 1):
+            if_match = IF_CHANGE_RE.search(line)
+            then_match = THEN_CHANGE_RE.search(line)
+
+            if if_match:
+                if_stack.append((idx, if_match.group(1)))
+
+            if then_match and if_stack:
+                start_idx, label = if_stack.pop()
+                end_idx = idx
+
+                # Check if any modified line falls inside [start_idx, end_idx]
+                block_modified = any(start_idx <= ml <= end_idx for ml in modified_lines)
+                if block_modified:
+                    targets = parse_targets(then_match.group(1))
+                    for target in targets:
+                        t_file = target.split(":", 1)[0] if ":" in target else target
+                        if t_file and t_file not in staged_files:
+                            lbl_msg = f" ({label})" if label else ""
+                            errors.append(
+                                f"❌ IFTTT Violation: '{rel_path}'{lbl_msg} was modified (lines {start_idx}-{end_idx}), "
+                                f"but required partner file '//{t_file}' is not staged in this commit."
+                            )
+
+    return errors
+
+
 def main():
     files = sys.argv[1:]
     if not files:
@@ -124,6 +207,10 @@ def main():
             continue
         errs = check_file(rel_path)
         total_errors.extend(errs)
+
+    # Check staged IFTTT cross-file synchronization
+    staged_ifttt_errors = check_staged_ifttt()
+    total_errors.extend(staged_ifttt_errors)
 
     if total_errors:
         print("❌ IFTTT Directives Lint Errors:")
