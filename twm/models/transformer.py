@@ -27,7 +27,6 @@ class TransformerBlock(nnx.Module):
         return x
 
 
-# LINT.IfChange(transformer_arch)
 class TransformerWorldModel(nnx.Module):
     """Causal Transformer World Model for vector sequence dynamics prediction."""
 
@@ -99,6 +98,3 @@ class TransformerWorldModel(nnx.Module):
         pred_continues = self.heads.predict_continue(action_token_features)
 
         return pred_next_states, pred_rewards, pred_continues
-
-
-# LINT.ThenChange(//twm/models/attention.py:attention_block, //twm/models/heads.py:dynamics_head, //twm/envs/tokenization.py:token_projection)
