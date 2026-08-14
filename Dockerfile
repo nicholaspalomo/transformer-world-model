@@ -75,9 +75,9 @@ RUN chmod +x /etc/profile.d/twm_shell.sh && \
 
 WORKDIR /workspace
 
-# Copy requirements and install
-COPY requirements.txt /workspace/
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Copy pyproject.toml and install dependencies
+COPY pyproject.toml README.md /workspace/
+RUN pip3 install --no-cache-dir --upgrade --ignore-installed ".[dev]"
 
 # Copy start_vnc script
 COPY scripts/start_vnc.sh /usr/local/bin/start_vnc.sh

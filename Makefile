@@ -30,7 +30,7 @@ help:
 	@echo "  make clean               Clean pycache, temporary files, and plot artifacts"
 
 install:
-	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -e ".[dev]"
 
 test:
 	PYTHONPATH=. $(PYTHON) -m unittest discover -s tests -p "*_test.py"
