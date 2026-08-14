@@ -34,7 +34,7 @@ dev = [
     "yapf>=0.40.0",
     "pre-commit>=3.7.0",
 ]
-# LINT.ThenChange(//requirements.txt:dependencies, //MODULE.bazel:dependencies)
+# LINT.ThenChange(//MODULE.bazel:dependencies)
 
 [tool.setuptools.packages.find]
 where = ["."]
