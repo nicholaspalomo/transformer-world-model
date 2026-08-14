@@ -1,0 +1,22 @@
+model:
+  embed_dim: 256
+  num_heads: 8
+  num_layers: 4
+  mlp_dim: 512
+  dropout_rate: 0.1
+  max_seq_len: 64
+
+training:
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  warmup_steps: 1000
+  batch_size: 32
+  seq_length: 32
+  grad_clip: 1.0
+
+mppi:
+  num_samples: 1000
+  horizon: 15
+  temperature: 0.5
+  gamma: 0.99
+  noise_std: 0.5

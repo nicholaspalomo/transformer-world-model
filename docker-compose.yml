@@ -1,0 +1,31 @@
+services:
+  twm_dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_ID: "${USER_ID:-1000}"
+        GROUP_ID: "${GROUP_ID:-1000}"
+        USERNAME: "devuser"
+    container_name: transformer_world_model_dev
+    volumes:
+      - .:/workspace
+      - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
+      - ${HOME}/.ssh:/tmp/host_ssh:cached,z
+      - ./scripts/shell_init.sh:/etc/profile.d/twm_shell.sh:cached,ro
+    ports:
+      - "${VNC_PORT:-5900}:5900"   # VNC Server Port
+      - "${NOVNC_PORT:-6080}:6080" # noVNC Web UI Port
+    environment:
+      - DISPLAY=:1
+      - TERM=xterm-256color
+      - BASH_ENV=/etc/profile.d/twm_shell.sh
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/workspace
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - LIBGL_ALWAYS_INDIRECT=0
+      - MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+    ipc: host
+    shm_size: '4gb'
+    tty: true
+    stdin_open: true

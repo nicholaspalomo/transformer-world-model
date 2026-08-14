@@ -1,0 +1,29 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_test(
+    name = "env_test",
+    srcs = ["env_test.py"],
+    deps = [
+        "//twm:envs",
+        "//twm:utils",
+    ],
+)
+
+py_test(
+    name = "model_test",
+    srcs = ["model_test.py"],
+    deps = [
+        "//twm:models",
+    ],
+)
+
+py_test(
+    name = "mppi_test",
+    srcs = ["mppi_test.py"],
+    deps = [
+        "//twm:models",
+        "//twm:planner",
+    ],
+)

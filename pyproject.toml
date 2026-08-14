@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twm"
+version = "0.1.0"
+description = "Transformer World Model with MPPI Control in JAX"
+readme = "README.md"
+requires-python = ">=3.10"
+# LINT.IfChange(dependencies)
+dependencies = [
+    "jax>=0.4.20",
+    "jaxlib>=0.4.20",
+    "flax>=0.8.0",
+    "optax>=0.1.7",
+    "brax>=0.10.0",
+    "gymnasium>=0.29.0",
+    "flashbax>=0.1.2",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "wandb>=0.16.0",
+    "matplotlib>=3.7.0",
+    "pyvirtualdisplay>=3.0",
+    "pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.4.0",
+    "black>=24.0.0",
+    "flake8>=7.0.0",
+    "yapf>=0.40.0",
+    "pre-commit>=3.7.0",
+]
+# LINT.ThenChange(//requirements.txt:dependencies, //MODULE.bazel:dependencies)
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["twm*"]
+
+# Google3 / PEP 8 Style Formatter & Linter Configurations
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    ".git",
+    "__pycache__",
+    "bazel-*",
+    ".pytest_cache",
+    "third_party",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort imports
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501", # line length handled by formatter
+    "B008", # do not perform function calls in argument defaults
+    "F841", # local variable name is assigned to but never used
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["twm"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.pytest_cache
+  | bazel-.*
+  | third_party
+)/
+'''
+
+[tool.yapf]
+based_on_style = "google"
+column_limit = 100
+split_before_named_assigns = true
+split_penalty_after_opening_bracket = 300

@@ -1,0 +1,12 @@
+[submodule "third_party/brax"]
+	path = third_party/brax
+	url = https://github.com/google/brax.git
+[submodule "third_party/dreamerv3"]
+	path = third_party/dreamerv3
+	url = https://github.com/danijar/dreamerv3.git
+[submodule "third_party/flax"]
+	path = third_party/flax
+	url = https://github.com/google/flax.git
+[submodule "third_party/walk_in_the_park"]
+	path = third_party/walk_in_the_park
+	url = https://github.com/ikostrikov/walk_in_the_park.git
