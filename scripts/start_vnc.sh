@@ -43,7 +43,7 @@ sleep 1
 
 # 2. Start Openbox Window Manager
 echo "Starting Openbox window manager..."
-openbox-session >/dev/null 2>&1 &
+openbox >/dev/null 2>&1 &
 sleep 0.5
 
 # 3. Start x11vnc server on port 5900
@@ -59,22 +59,8 @@ fi
 
 if command -v websockify > /dev/null && [ -d "$NOVNC_DIR" ]; then
     echo "Starting noVNC websockify on port 6080..."
-    # Create auto-redirect index.html so opening http://localhost:6080/ immediately auto-connects
-    cat <<'EOF' > "${NOVNC_DIR}/index.html"
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>TWM Simulation Desktop</title>
-  <meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=remote">
-  <script>window.location.replace("vnc.html?autoconnect=true&resize=remote");</script>
-</head>
-<body style="background:#1a1a2e;color:#e0e0e0;font-family:sans-serif;text-align:center;padding-top:20%;">
-  <h2>Connecting to Simulation Desktop...</h2>
-  <p><a style="color:#00d2ff;" href="vnc.html?autoconnect=true&resize=remote">Click here if not redirected automatically</a></p>
-</body>
-</html>
-EOF
+    # Symlink vnc.html to index.html for direct root navigation
+    ln -sf "${NOVNC_DIR}/vnc.html" "${NOVNC_DIR}/index.html" 2>/dev/null || true
     websockify --web "${NOVNC_DIR}" 6080 localhost:5900 >/tmp/novnc.log 2>&1 &
     sleep 0.5
 fi

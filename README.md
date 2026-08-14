@@ -117,16 +117,15 @@ docker exec -u devuser -it transformer_world_model_dev bash
 make docker-shell
 ```
 
-### 2. Connect via SSH Port Forwarding
+### 2. Connect to VNC / noVNC Web Desktop
 
-From your local computer, open an SSH tunnel to the remote host:
+- **Web Browser (noVNC)**: Open **[http://localhost:6080/vnc.html](http://localhost:6080/vnc.html)** (or `http://localhost:6080/`) in your browser.
+- **Desktop VNC Client**: Connect your VNC viewer (e.g., TigerVNC, RealVNC) to `localhost:5900` (Password: none).
 
+If connecting from a remote machine over SSH:
 ```bash
-ssh -L 5903:localhost:5903 -L 6082:localhost:6082 user@remote-host-ip
+ssh -L 5900:localhost:5900 -L 6080:localhost:6080 user@remote-host-ip
 ```
-
-- **VNC Client**: Connect your favorite VNC viewer (e.g. RealVNC, TigerVNC viewer) to `localhost:5903` (Password: `nopassword`).
-- **Web Browser (noVNC)**: Open `http://localhost:6082` in your web browser.
 
 ---
 

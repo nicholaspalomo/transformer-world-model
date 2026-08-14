@@ -39,8 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     less \
     locales \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+    && rm -rf /var/lib/apt/lists/*
+
+# Install modern noVNC (v1.5.0) to eliminate legacy localStorage/cookie settings bugs
+RUN rm -rf /usr/share/novnc && \
+    mkdir -p /usr/share/novnc && \
+    curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.5.0.tar.gz | tar -xz -C /usr/share/novnc --strip-components=1 && \
+    ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 
 # Install Bazelisk as /usr/local/bin/bazel
 RUN curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /usr/local/bin/bazel \

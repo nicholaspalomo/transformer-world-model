@@ -33,7 +33,10 @@ except ImportError:
 
 # LINT.IfChange(anymal_vis)
 def visualize_anymal(
-    num_steps: int = 50, html_out: str = "anymal_rollout.html", headless: bool = False
+    num_steps: int = 200,
+    html_out: str = "anymal_rollout.html",
+    headless: bool = False,
+    pause_sec: float = 60.0,
 ):
     print("=== Launching ANYmal B Robot Simulation in Brax ===")
     env = ANYmalBEnv(backend="positional")
@@ -83,7 +86,9 @@ def visualize_anymal(
             with open(html_out, "w") as f:
                 f.write(html_content)
             print(f"✓ Saved 3D Interactive HTML viewer to '{html_out}'.")
-            print("  (Open in browser or view inside VNC desktop/noVNC: http://localhost:6080)")
+            print(
+                "  (Open in browser or view inside VNC desktop/noVNC: http://localhost:6080/vnc.html)"
+            )
         except Exception as e:
             print(f"HTML render notice: {e}")
 
@@ -111,10 +116,10 @@ def visualize_anymal(
 
     # If running with active display inside VNC (DISPLAY=:1), display window
     if "DISPLAY" in os.environ and not headless:
-        print(f"Displaying interactive window on {os.environ['DISPLAY']}...")
+        print(f"Displaying interactive window on {os.environ['DISPLAY']} for {pause_sec}s...")
         try:
             plt.show(block=False)
-            plt.pause(2)
+            plt.pause(pause_sec)
         except Exception as e:
             print(f"Window display notice: {e}")
 
@@ -123,14 +128,27 @@ def visualize_anymal(
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize ANYmal B in Brax on VNC display.")
-    parser.add_argument("--num_steps", type=int, default=30, help="Simulation steps")
+    parser.add_argument(
+        "--num_steps", type=int, default=200, help="Simulation steps (default: 200)"
+    )
     parser.add_argument(
         "--html_out", type=str, default="anymal_rollout.html", help="HTML 3D output file"
     )
     parser.add_argument("--headless", action="store_true", help="Run without popping GUI window")
+    parser.add_argument(
+        "--pause_sec",
+        type=float,
+        default=60.0,
+        help="Seconds to display figure on VNC (default: 60.0)",
+    )
     args = parser.parse_args()
 
-    visualize_anymal(num_steps=args.num_steps, html_out=args.html_out, headless=args.headless)
+    visualize_anymal(
+        num_steps=args.num_steps,
+        html_out=args.html_out,
+        headless=args.headless,
+        pause_sec=args.pause_sec,
+    )
 
 
 if __name__ == "__main__":

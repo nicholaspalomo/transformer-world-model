@@ -80,7 +80,7 @@ visualize:
 	PYTHONPATH=. $(PYTHON) notebooks/01_visualize_rollouts.py
 
 visualize-anymal:
-	PYTHONPATH=. $(PYTHON) scripts/visualize_anymal.py --num_steps 30
+	PYTHONPATH=. $(PYTHON) scripts/visualize_anymal.py --num_steps 200 --pause_sec 60.0
 # LINT.ThenChange(//twm/envs/brax_wrapper.py:env_registry, //scripts/01_collect_data.py:env_args, //scripts/03_evaluate_mppi.py:env_args, //scripts/visualize_anymal.py:anymal_vis)
 
 bazel-build:
@@ -99,7 +99,7 @@ docker-up:
 	@echo "🚀 Container started successfully!"
 	@echo "🖥️  VNC Desktop running on port 5900 (Display :1)"
 	@echo "🌐 noVNC Web UI Auto-Connect ready at:"
-	@echo "   http://localhost:6080/"
+	@echo "   http://localhost:6080/vnc.html (or http://localhost:6080/)"
 	@echo "=========================================================="
 
 docker-down:
