@@ -219,6 +219,8 @@ __marimo__/
 
 # Bazel outputs
 bazel-*
+MODULE.bazel.lock
+.bazel-cache/
 
 # Generated simulation & rollout artifacts
 *.png
