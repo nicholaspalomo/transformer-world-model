@@ -18,3 +18,5 @@ wandb>=0.16.0
 matplotlib>=3.7.0
 pyvirtualdisplay>=3.0
 pillow>=10.0.0
+# Testing & Development
+pytest>=7.0.0

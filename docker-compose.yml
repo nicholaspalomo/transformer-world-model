@@ -21,6 +21,7 @@ services:
       - TERM=xterm-256color
       - BASH_ENV=/etc/profile.d/twm_shell.sh
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/workspace
     ipc: host
     shm_size: '4gb'
     tty: true

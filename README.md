@@ -130,6 +130,22 @@ ssh -L 5903:localhost:5903 -L 6082:localhost:6082 user@remote-host-ip
 
 ---
 
+## 🔄 Continuous Integration (GitHub Actions)
+
+The repository includes automated CI workflows in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) that run on every push and pull request:
+1. **Build Repo & Unit Tests**: Validates Python & Bazel dependencies, runs all automated unit tests, and verifies dry runs of milestone scripts.
+2. **Docker Build & Container Verification**: Automatically builds the Docker image and runs unit tests inside the container environment.
+
+### Run Local CI Verification:
+Before pushing commits, you can run the exact same checks locally:
+```bash
+./tools/ci_local.sh
+# or using Makefile:
+make ci-local
+```
+
+---
+
 ## 📚 Core Milestone Reference Papers
 
 1. **Transformer World Models**: *IRIS: Transformers are Sample-Efficient World Models* (Alonso et al., 2023).

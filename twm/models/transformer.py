@@ -54,7 +54,8 @@ class TransformerWorldModel(nnx.Module):
         # Learnable positional embeddings
         self.pos_embed = nnx.Param(jax.random.normal(rngs.params(), (1, max_seq_len, embed_dim)) * 0.02)
 
-        self.blocks = nnx.List([
+        list_factory = getattr(nnx, "List", list)
+        self.blocks = list_factory([
             TransformerBlock(embed_dim, num_heads, mlp_dim, rngs=rngs)
             for _ in range(num_layers)
         ])
@@ -76,8 +77,9 @@ class TransformerWorldModel(nnx.Module):
         tokens = self.tokenizer.combine_tokens(states, actions)
         batch_size, token_seq_len, _ = tokens.shape
 
-        # Add positional embedding
-        tokens = tokens + self.pos_embed[:, :token_seq_len, :]
+        # Add positional embedding (compatible with both Flax 0.10 and 0.12+)
+        pos_emb = getattr(self.pos_embed, "value", self.pos_embed)
+        tokens = tokens + pos_emb[:, :token_seq_len, :]
 
         # Pass through causal transformer layers
         h = tokens

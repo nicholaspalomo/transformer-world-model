@@ -4,6 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV DISPLAY=:1
 ENV TERM=xterm-256color
+ENV PYTHONPATH=/workspace
 
 ARG USER_ID=1000
 ARG GROUP_ID=1000
@@ -14,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-dev \
+    python-is-python3 \
     git \
     openssh-client \
     bash-completion \

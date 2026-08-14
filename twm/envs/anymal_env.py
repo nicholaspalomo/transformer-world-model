@@ -87,10 +87,9 @@ class ANYmalBEnv(PipelineEnv if _HAS_BRAX else object):
         done = jnp.zeros(())
         metrics = {"forward_vel": jnp.zeros(())}
 
-        state = State(pipeline_state, obs, reward, done, metrics)
-        return state, obs
+        return State(pipeline_state, obs, reward, done, metrics)
 
-    def step(self, state: Any, action: jax.Array, rng: Optional[jax.Array] = None) -> Tuple[Any, jax.Array, jax.Array, jax.Array, Dict[str, Any]]:
+    def step(self, state: Any, action: jax.Array, rng: Optional[jax.Array] = None) -> Any:
         """Step physics simulation forward given 12 joint torque/target actions."""
         if not _HAS_BRAX or self.sys is None:
             next_obs = jax.random.normal(rng or jax.random.PRNGKey(0), (self.observation_size,))
@@ -115,10 +114,9 @@ class ANYmalBEnv(PipelineEnv if _HAS_BRAX else object):
         done = jnp.where(torso_height < 0.2, 1.0, 0.0)
 
         metrics = {"forward_vel": forward_vel, "torso_height": torso_height}
-        next_state = state.replace(
+        return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done, metrics=metrics
         )
-        return next_state, obs, reward, done, metrics
 
     def _get_obs(self, pipeline_state: Any) -> jax.Array:
         """Extract continuous observation vector for Transformer World Model."""

@@ -9,6 +9,7 @@ help:
 	@echo "Available Makefile commands:"
 	@echo "  make install             Install Python dependencies into current virtualenv"
 	@echo "  make test                Run unit test suite"
+	@echo "  make ci-local            Run complete CI workflow locally"
 	@echo "  make collect-data        Run Milestone 1: Brax data collection (Ant)"
 	@echo "  make collect-anymal      Collect data from ANYmal B quadruped into buffer"
 	@echo "  make train               Run Milestones 2 & 3: Train Transformer World Model"
@@ -29,6 +30,9 @@ install:
 
 test:
 	PYTHONPATH=. $(PYTHON) -m unittest discover -s tests -p "*_test.py"
+
+ci-local:
+	./tools/ci_local.sh
 
 collect-data:
 	PYTHONPATH=. $(PYTHON) scripts/01_collect_data.py --num_steps 100 --seq_len 32
