@@ -1,153 +1,211 @@
-# Transformer World Model with MPPI Control in JAX
+# ANYmal Quadruped Locomotion: GRPO-Style Diffusion Policy & Transformer World Model in JAX
 
-[Work in progress]
-
-Implementation of an **Auto-Regressive Causal Transformer World Model** controlled via **Model Predictive Path Integral (MPPI)** planning, built entirely in **JAX**, **Flax (NNX API)**, **Optax**, and **Brax**, structured with a **Bazel build system**.
+Implementation of **Group Relative Policy Optimization (GRPO)** for a **Diffusion Policy** controlling the **ANYmal B Quadruped Robot** for walking in **Brax / MuJoCo**, alongside an **Auto-Regressive Causal Transformer World Model** with **MPPI Planning**, built with **JAX**, **Flax (NNX API)**, **Optax**, and **Bazel**.
 
 ---
 
-## 🌟 Architectural Overview
+## 🌟 GRPO Diffusion Policy Architecture & Block Diagram
 
-```text
-               +-------------------------------------------------------+
-               |                  Brax Physics Engine                  |
-               |                (GPU-Accelerated Rigids)               |
-               +-------------------------------------------------------+
-                                   |                 ^
-                     State (s_t)   |                 | Action (a_t*)
-                                   v                 |
-  +-------------------------------------------------------------------------+
-  |                             MPPI Planner                                |
-  |   (1000 Trajectory Samples, jax.lax.scan Auto-regressive Rollouts)      |
-  +-------------------------------------------------------------------------+
-                                   |
-                         Imagined Rollouts (s, a)
-                                   v
-  +-------------------------------------------------------------------------+
-  |                    Causal Transformer World Model                       |
-  |   - Tokenizer: Interleaved continuous (s_t, a_t) embedding tokens       |
-  |   - Causal Self-Attention: Strict lower-triangular causal masking       |
-  |   - Dynamics Head: Next-state delta (s_{t+1}), reward (r_t), discount    |
-  +-------------------------------------------------------------------------+
+```
++─────────────────────────────────────────────────────────────────────────────────────────────────────────────+
+│                                              GRPO Training Loop                                             │
+│                                                                                                             │
+│   1. Environment State Observation:                                                                         │
+│      s_t in R^35 (Joint angles, joint vels, base height, orientation quat, lin/ang vel)                     │
+│                                                                                                             │
+│   2. Group Rollout Sampling via Stochastic Diffusion Denoising:                                             │
+│      For candidate g = 1, ..., G:                                                                           │
+│        x_K ~ N(0, I) ──► Denoising Net eps_theta(x_k, k, s_t) ──► ... ──► x_0 = a^(g) in [-1, 1]^12         │
+│        Reverse Trajectory Log-Likelihood: log pi_old(a^(g) | s_t) = sum_{k=1}^K log p_theta(x_{k-1}|x_k, s) │
+│                                                                                                             │
+│   3. Lower-Level Joint PD Impedance Controller:                                                             │
+│      q_target = clip(q_nominal + a^(g) * action_scale, q_min, q_max)                                        │
+│      tau = clip(kp * (q_target - q) - kd * q_dot, -tau_max, tau_max)                                        │
+│                                                                                                             │
+│   4. Physics Simulation Rollouts (Brax ANYmal B):                                                           │
+│      Execute over horizon H ──► Evaluate discounted returns R^(1), ..., R^(G)                               │
+│                                                                                                             │
+│   5. Critic-Free Group Relative Advantage Normalization:                                                    │
+│      Adv^(g) = (R^(g) - mean({R^(j)})) / (std({R^(j)}) + eps)                                               │
+│                                                                                                             │
+│   6. GRPO Clipped Surrogate Loss & Parameter Update:                                                        │
+│      ratio^(g)(theta) = exp(log pi_theta(a^(g)|s_t) - log pi_old(a^(g)|s_t))                               │
+│      L_GRPO = -1/(B*G) sum min(ratio * Adv, clip(ratio, 1-eps, 1+eps) * Adv) + beta_KL * D_KL               │
++─────────────────────────────────────────────────────────────────────────────────────────────────────────────+
+```
+
+### Detailed System Dataflow Diagram
+
+```mermaid
+flowchart TD
+    subgraph EnvState ["1. Environment State Observation"]
+        ST["Observation Vector s_t (35-dim)<br/>• Joint Angles Δq (12)<br/>• Joint Velocities (12)<br/>• Base Height z (1)<br/>• Orientation Quat (4)<br/>• Base Lin/Ang Vel (6)"]
+    end
+
+    subgraph DiffusionSampler ["2. Reverse Diffusion Policy (Flax NNX)"]
+        XK["Prior Noise x_K ~ N(0, I)"]
+        DENOISE["Reverse Denoising Process<br/>k = K, ..., 1<br/>μ_θ = 1/√α (x_k - β/√(1-ᾱ) ε_θ(x_k, k, s))<br/>x_{k-1} ~ N(μ_θ, σ_k² I)"]
+        X0["Policy Output x_0 = a^(g) ∈ [-1, 1]¹²<br/>Sample Group of G Candidates: {a⁽¹⁾, ..., a⁽ᴳ⁾}"]
+        LOGP["Exact Reverse Log-Likelihood<br/>log π_θ(a|s) = ∑ₖ log p_θ(x_{k-1}|x_k, s)"]
+        XK --> DENOISE --> X0
+        DENOISE -.-> LOGP
+    end
+
+    subgraph PDController ["3. Lower-Level Joint PD Controller"]
+        QT["Joint Target Computation<br/>q_target = q_nominal + action_scale * a"]
+        TAU["Torque Calculation<br/>τ = clip(k_p (q_target - q) - k_d q̇, -τ_max, τ_max)<br/>k_p = 50 Nm/rad, k_d = 1.5 Nms/rad"]
+        QT --> TAU
+    end
+
+    subgraph PhysicsSim ["4. ANYmal B Physics (Brax / MuJoCo)"]
+        STEP["Multi-Step Horizon Rollouts<br/>Step ANYmal with joint PD torques τ"]
+        RET["Episodic Returns R⁽¹⁾, ..., R⁽ᴳ⁾<br/>• Forward Velocity Tracking (0.8 m/s)<br/>• Upright Torso Alignment Bonus<br/>• Base Height Maintenance (0.50m)<br/>• Torque & Smoothness Penalties"]
+        STEP --> RET
+    end
+
+    subgraph GRPOTrainer ["5. Group Relative Optimization (No Critic!)"]
+        ADV["Group Advantage Normalization<br/>A⁽ᵍ⁾ = (R⁽ᵍ⁾ - μ_R) / (σ_R + ε)"]
+        RATIO["Importance Weight<br/>ρ⁽ᵍ⁾(θ) = exp(log π_θ - log π_old)"]
+        LOSS["GRPO Clipped Loss + KL Regularization<br/>L = -min(ρ A, clip(ρ, 1-ε, 1+ε) A) + β_KL D_KL"]
+        UPDATE["Optax AdamW Gradient Update<br/>JIT-Compiled Backprop on Policy Weights θ"]
+        ADV --> LOSS
+        RATIO --> LOSS
+        LOSS --> UPDATE
+    end
+
+    EnvState --> DiffusionSampler
+    X0 --> PDController
+    TAU --> PhysicsSim
+    RET --> ADV
+    LOGP --> RATIO
+    UPDATE -.-> DiffusionSampler
 ```
 
 ---
 
-## 🛠️ Repository Structure & Bazel Targets
+## 🦿 Mathematical Formulation
+
+### 1. Reverse Diffusion Policy Log-Likelihood
+The policy denoises noisy action $x_K \sim \mathcal{N}(0, I)$ down to $x_0 = a \in [-1, 1]^{12}$ across $K$ timesteps:
+$$\mu_\theta(x_k, k, s) = \frac{1}{\sqrt{\alpha_k}} \left( x_k - \frac{\beta_k}{\sqrt{1 - \bar{\alpha}_k}} \epsilon_\theta(x_k, k, s) \right)$$
+$$\sigma_k^2 = \frac{1 - \bar{\alpha}_{k-1}}{1 - \bar{\alpha}_k} \beta_k$$
+$$p_\theta(x_{k-1} | x_k, s) = \mathcal{N}\left(x_{k-1}; \mu_\theta(x_k, k, s), \sigma_k^2 I\right)$$
+
+The exact trajectory log-likelihood under the reverse diffusion chain is:
+$$\log \pi_\theta(a | s) = \sum_{k=1}^K \log p_\theta(x_{k-1} | x_k, s) = -\frac{1}{2} \sum_{k=1}^K \left[ \frac{\|x_{k-1} - \mu_\theta(x_k, k, s)\|^2}{\sigma_k^2} + d \log(2\pi \sigma_k^2) \right]$$
+
+### 2. Lower-Level Joint PD Control Law
+Given nominal standing configuration $q_{\text{nominal}}$:
+$$q_{\text{target}} = \text{clip}(q_{\text{nominal}} + \text{scale} \cdot a, q_{\text{lower}}, q_{\text{upper}})$$
+$$\tau = \text{clip}\left( k_p (q_{\text{target}} - q) - k_d \dot{q}, -\tau_{\max}, \tau_{\max} \right)$$
+where $k_p = 50.0\text{ N}\cdot\text{m/rad}$, $k_d = 1.5\text{ N}\cdot\text{m}\cdot\text{s/rad}$, $\tau_{\max} = 40.0\text{ N}\cdot\text{m}$, and $\text{scale} = 0.3\text{ rad}$.
+
+### 3. Group Relative Policy Optimization (GRPO)
+GRPO samples a group of $G$ candidate trajectories per state, completely eliminating the need for a separate critic / value function network:
+$$A_i^{(g)} = \frac{R_i^{(g)} - \frac{1}{G} \sum_{j=1}^G R_i^{(j)}}{\sqrt{\frac{1}{G} \sum_{j=1}^G (R_i^{(j)} - \bar{R}_i)^2} + \epsilon}$$
+
+Policy objective with clipped importance ratios and KL divergence penalty:
+$$r_i^{(g)}(\theta) = \exp\left( \log \pi_\theta(a_i^{(g)} | s_i) - \log \pi_{\theta_{\text{old}}}(a_i^{(g)} | s_i) \right)$$
+$$\mathcal{L}_{\text{GRPO}}(\theta) = -\frac{1}{B \cdot G} \sum_{i=1}^B \sum_{g=1}^G \left[ \min\left( r_i^{(g)}(\theta) A_i^{(g)}, \text{clip}(r_i^{(g)}(\theta), 1-\epsilon_{\text{clip}}, 1+\epsilon_{\text{clip}}) A_i^{(g)} \right) - \beta_{\text{KL}} D_{\text{KL}}(\pi_\theta \| \pi_{\text{ref}}) \right]$$
+
+---
+
+## 🛠️ Repository Structure
 
 ```text
 transformer_world_model/
-├── MODULE.bazel              # Bzlmod Python dependencies
-├── .bazelrc                  # Google3-style Bazel configuration
-├── BUILD.bazel               # Root BUILD target aliases
-├── Dockerfile                # Headless Ubuntu container with Bazelisk & VNC
-├── docker-compose.yml        # Compose service mapping VNC (5900) & noVNC (6080)
-├── configs/                  # Environment & Model Yaml hyperparams
-│   ├── env_brax_ant.yaml
-│   └── model_twm_base.yaml
-├── twm/                      # Main Package (BUILD.bazel: //twm:*)
-│   ├── envs/                 # Brax wrappers and continuous tokenization
-│   ├── models/               # Flax NNX Transformer & prediction heads
-│   ├── planner/              # MPPI planner with jax.lax.scan
-│   └── utils/                # Replay buffer & PRNG key management
-├── scripts/                  # Milestone Executable Binaries (BUILD.bazel: //scripts:*)
-│   ├── 01_collect_data.py    # Milestone 1: Brax exploration & buffer sampling
-│   ├── 02_train_model.py     # Milestones 2 & 3: JIT-compiled training loop
-│   ├── 03_evaluate_mppi.py   # Milestone 4: MPPI controller rollouts
-│   └── start_vnc.sh          # TurboVNC / Openbox / noVNC daemon
-├── tests/                    # Bazel Unit Test Suite (BUILD.bazel: //tests:*)
-│   ├── env_test.py
-│   ├── model_test.py
-│   └── mppi_test.py
-└── third_party/              # Reference Submodules
-    ├── brax/                 # google/brax
-    ├── dreamerv3/            # danijar/dreamerv3
-    ├── flax/                 # google/flax
-    └── walk_in_the_park/     # ikostrikov/walk_in_the_park
+├── configs/
+│   ├── grpo_diffusion_anymal.yaml # GRPO Diffusion Policy hyperparams
+│   ├── env_anymal_b.yaml          # ANYmal B environment settings
+│   ├── env_brax_ant.yaml          # Brax Ant benchmark
+│   └── model_twm_base.yaml        # Transformer World Model config
+├── twm/
+│   ├── algorithms/
+│   │   └── diffusion_grpo.py      # GRPO Algorithm (Group sampling, Advantage, Clipped loss)
+│   ├── envs/
+│   │   ├── pd_controller.py       # Low-level Joint PD Impedance Controller
+│   │   ├── anymal_env.py          # ANYmal B Brax environment & walking rewards
+│   │   ├── brax_wrapper.py        # Vectorized Brax Environment Wrapper
+│   │   └── tokenization.py        # Continuous state/action tokenizers
+│   ├── models/
+│   │   ├── diffusion_policy.py    # Flax NNX Diffusion Policy & Exact Likelihood Evaluator
+│   │   ├── transformer.py         # Causal Transformer World Model
+│   │   ├── attention.py           # Causal Multi-Head Self-Attention
+│   │   └── heads.py               # Dynamics, reward & termination heads
+│   ├── planner/
+│   │   └── mppi.py                # MPPI Planner with jax.lax.scan rollouts
+│   └── utils/
+│       ├── buffer.py              # Sequence Replay Buffer
+│       └── prng.py                # JAX PRNG key sequencing
+├── scripts/
+│   ├── train_diffusion_grpo.py    # End-to-end GRPO Diffusion training on ANYmal
+│   ├── visualize_diffusion_policy.py # Visualizer: Telemetry plots & 3D HTML viewer
+│   ├── visualize_anymal.py        # ANYmal kinematic simulator
+│   ├── 01_collect_data.py         # World Model data collection
+│   ├── 02_train_model.py          # World Model training
+│   └── 03_evaluate_mppi.py        # MPPI planner evaluation
+└── tests/
+    ├── test_diffusion_grpo.py     # Test suite for PD controller, Diffusion & GRPO
+    ├── env_test.py                # Brax environment test
+    ├── model_test.py              # Transformer model test
+    └── mppi_test.py               # MPPI planner test
 ```
 
 ---
 
-## 🚀 Quickstart & Commands
+## 🚀 Quickstart Guide
 
-### Using Make
-
+### 1. Run Unit Test Suite
 ```bash
-make help              # Show available make commands
-make test              # Run unit test suite
-make collect-data      # Milestone 1: Collect Brax trajectories (Ant)
-make collect-anymal    # Milestone 1: Collect trajectories (ANYmal B quadruped)
-make train             # Milestones 2 & 3: JIT-compiled model training loop
-make evaluate          # Milestone 4: Closed-loop MPPI planner (Ant)
-make evaluate-anymal   # Milestone 4: Closed-loop MPPI planner (ANYmal B)
-make visualize         # Plot real vs imagined trajectory rollouts
-make visualize-anymal  # Launch ANYmal B visualizer on VNC & generate 3D HTML
-make docker-up         # Launch container with VNC server
+# Run GRPO Diffusion Policy test suite
+PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python -m unittest tests/test_diffusion_grpo.py
+
+# Run all repository tests
+PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python -m unittest discover tests "*_test.py"
 ```
 
-### Using Bazel
-
+### 2. Train Diffusion Policy with GRPO
 ```bash
-# Build all targets
-bazel build //...
-
-# Run full test suite
-bazel test //...
-
-# Execute Milestone 1: Collect Data
-bazel run //scripts:01_collect_data
-
-# Execute Milestone 2 & 3: Train Transformer Model
-bazel run //scripts:02_train_model
-
-# Execute Milestone 4: MPPI Planning Evaluation
-bazel run //scripts:03_evaluate_mppi
+PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python scripts/train_diffusion_grpo.py \
+    --config configs/grpo_diffusion_anymal.yaml \
+    --num_iterations 50 \
+    --group_size 8 \
+    --batch_size 8 \
+    --rollout_horizon 16 \
+    --num_timesteps 8 \
+    --learning_rate 3e-4
 ```
+
+### 3. Visualize ANYmal Walking Telemetry & 3D Rollout
+```bash
+PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python scripts/visualize_diffusion_policy.py \
+    --num_steps 150 \
+    --html_out anymal_diffusion_walk.html \
+    --plot_out anymal_diffusion_kinematics.png \
+    --headless
+```
+- **Telemetry Plot**: Generated at `anymal_diffusion_kinematics.png` showing joint tracking errors, forward velocity, torso height, and PD motor torques.
+- **Interactive 3D HTML Viewer**: Generated at `anymal_diffusion_walk.html` (open in any web browser to rotate and inspect the 3D quadruped locomotion).
 
 ---
 
-## 🐳 Running in Docker with VNC Forwarding
+## 🤖 ANYmal B Quadruped Specification
 
-### 1. Launch Docker Container
-
-```bash
-docker compose up -d --build
-docker exec -u devuser -it transformer_world_model_dev bash
-# or using Makefile:
-make docker-shell
-```
-
-### 2. Connect to VNC / noVNC Web Desktop
-
-- **Web Browser (noVNC)**: Open **[http://localhost:6080/vnc_lite.html?scale=true](http://localhost:6080/vnc_lite.html?scale=true)** (or `http://localhost:6080/`) in your browser.
-- **Desktop VNC Client**: Connect your VNC viewer (e.g., TigerVNC, RealVNC) to `localhost:5900` (Password: none).
-
-If connecting from a remote machine over SSH:
-```bash
-ssh -L 5900:localhost:5900 -L 6080:localhost:6080 user@remote-host-ip
-```
+| Parameter | Value | Description |
+|---|---|---|
+| **Actuated Joints** | 12 | 3 DOF per leg: HAA (Adduction/Abduction), HFE (Hip Flexion/Extension), KFE (Knee Flexion/Extension) |
+| **Observation Dim** | 35 | $q - q_{\text{nominal}}$ (12), $\dot{q}$ (12), $z$ (1), quaternion (4), $v$ (3), $\omega$ (3) |
+| **Action Dim** | 12 | Residual joint position targets $\Delta q \in [-1, 1]^{12}$ scaled by 0.3 rad |
+| **PD Gains** | $k_p = 50.0$, $k_d = 1.5$ | Joint impedance stiffness ($N\cdot m/rad$) and damping ($N\cdot m\cdot s/rad$) |
+| **Peak Torque Limit** | $\pm 40.0\text{ N}\cdot\text{m}$ | Motor saturation limits per actuator |
+| **Target Walking Speed** | $0.8\text{ m/s}$ | Desired forward linear velocity along body x-axis |
 
 ---
 
-## 🔄 Continuous Integration (GitHub Actions)
+## 📚 References & Background
 
-The repository includes automated CI workflows in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) that run on every push and pull request:
-1. **Build Repo & Unit Tests**: Validates Python & Bazel dependencies, runs all automated unit tests, and verifies dry runs of milestone scripts.
-2. **Docker Build & Container Verification**: Automatically builds the Docker image and runs unit tests inside the container environment.
-
-### Run Local CI Verification:
-Before pushing commits, you can run the exact same checks locally:
-```bash
-./tools/ci_local.sh
-# or using Makefile:
-make ci-local
-```
-
----
-
-## 📚 Core Milestone Reference Papers
-
-1. **Transformer World Models**: *IRIS: Transformers are Sample-Efficient World Models* (Alonso et al., 2023).
-2. **MPPI Controller**: *Information Theoretic Model Predictive Control* (Williams et al., 2017).
-3. **Physics Engine**: *Brax - A Differentiable Physics Engine for Large Scale Rigid Body Simulation* (Freeman et al., 2021).
-4. **Robot Deployment**: *DayDreamer: World Models for Physical Robot Learning* (Wu et al., 2022).
+1. **GRPO**: *DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models* (Shao et al., 2024).
+2. **Diffusion Policy**: *Diffusion Policy: Visuomotor Policy Learning via Action Diffusion* (Chi et al., 2023).
+3. **Diffusion RL**: *DPOK: Directed Policy Optimization with Diffusion Models* (Fan et al., 2023).
+4. **Quadruped Control**: *Learning Quadrupedal Locomotion over Challenging Terrain* (Lee et al., 2020).
+5. **Brax Physics Engine**: *Brax - A Differentiable Physics Engine for Large Scale Rigid Body Simulation* (Freeman et al., 2021).

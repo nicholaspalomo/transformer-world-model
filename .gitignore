@@ -224,6 +224,9 @@ MODULE.bazel.lock
 
 # Generated simulation & rollout artifacts
 *.png
+*.html
 anymal_rollout.html
+anymal_diffusion_walk.html
 rollout_comparison.png
 anymal_kinematics.png
+anymal_diffusion_kinematics.png
