@@ -19,6 +19,7 @@ from flax import nnx
 
 from twm.envs.anymal_env import ANYmalBEnv
 from twm.models.diffusion_policy import DiffusionPolicy
+from twm.utils.checkpoint import load_checkpoint
 from twm.utils.prng import PRNGSequence
 
 try:
@@ -37,6 +38,7 @@ def visualize_diffusion_policy(
     kp: float = 50.0,
     kd: float = 1.5,
     action_scale: float = 0.3,
+    policy_checkpoint: str = "checkpoints/diffusion_policy_anymal.npz",
 ):
     print("=== Visualizing ANYmal Locomotion with Diffusion Policy & PD Controller ===")
     prng = PRNGSequence(seed=42)
@@ -64,6 +66,15 @@ def visualize_diffusion_policy(
         num_timesteps=8,
         rngs=policy_rngs,
     )
+
+    if policy_checkpoint and os.path.exists(policy_checkpoint):
+        try:
+            load_checkpoint(policy, policy_checkpoint)
+            print(f"✓ Loaded trained Diffusion Policy checkpoint: {policy_checkpoint}")
+        except Exception as e:
+            print(f"⚠️ Could not load policy checkpoint ({e}); proceeding with initialized policy.")
+    else:
+        print(f"ℹ️ Policy checkpoint '{policy_checkpoint}' not found; using initialized policy.")
 
     print(f"Executing closed-loop diffusion control for {num_steps} simulation steps...")
 
@@ -223,6 +234,12 @@ def main():
         help="Output PNG path",
     )
     parser.add_argument("--headless", action="store_true", default=True, help="Run headless")
+    parser.add_argument(
+        "--policy_checkpoint",
+        type=str,
+        default="checkpoints/diffusion_policy_anymal.npz",
+        help="Path to trained Diffusion Policy checkpoint",
+    )
     args = parser.parse_args()
 
     visualize_diffusion_policy(
@@ -230,6 +247,7 @@ def main():
         html_out=args.html_out,
         plot_out=args.plot_out,
         headless=args.headless,
+        policy_checkpoint=args.policy_checkpoint,
     )
 
 

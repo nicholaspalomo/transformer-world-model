@@ -13,6 +13,8 @@ from twm.algorithms.diffusion_grpo import (
 from twm.envs.anymal_env import ANYmalBEnv
 from twm.envs.pd_controller import NOMINAL_JOINT_POS, JointPDController, PDControlOutput
 from twm.models.diffusion_policy import DiffusionPolicy, ReverseTrajectory
+from twm.models.transformer import TransformerWorldModel
+from twm.utils.buffer import TrajectoryReplayBuffer
 from twm.utils.prng import PRNGSequence
 
 
@@ -196,6 +198,49 @@ class TestDiffusionGRPOTrainer(unittest.TestCase):
         self.assertTrue(jnp.isfinite(loss_output.total_loss))
         self.assertTrue(jnp.isfinite(loss_output.policy_loss))
         self.assertTrue(jnp.isfinite(loss_output.kl_div))
+
+    def test_world_model_imagination_rollouts(self):
+        wm_rngs = nnx.Rngs(params=self.prng.next())
+        world_model = TransformerWorldModel(
+            state_dim=35,
+            action_dim=12,
+            embed_dim=64,
+            num_heads=2,
+            num_layers=2,
+            mlp_dim=128,
+            rngs=wm_rngs,
+        )
+        replay_buffer = TrajectoryReplayBuffer(max_capacity=100, state_dim=35, action_dim=12)
+
+        config = DiffusionGRPOConfig(
+            group_size=4,
+            batch_size=2,
+            rollout_horizon=4,
+            learning_rate=1e-3,
+            num_epochs=1,
+            use_world_model=True,
+            imagination_horizon=4,
+        )
+        trainer = DiffusionGRPOTrainer(
+            policy=self.policy,
+            env=self.env,
+            config=config,
+            world_model=world_model,
+            replay_buffer=replay_buffer,
+        )
+
+        env_states = [self.env.reset(self.prng.next()) for _ in range(2)]
+        rollout_batch, next_states = trainer.sample_group_rollouts(self.prng.next(), env_states)
+
+        self.assertEqual(rollout_batch.obs.shape, (2, 4, 35))
+        self.assertEqual(rollout_batch.actions.shape, (2, 4, 12))
+        self.assertEqual(rollout_batch.returns.shape, (2, 4))
+        self.assertEqual(rollout_batch.advantages.shape, (2, 4))
+        self.assertEqual(float(rollout_batch.metrics["imagined"]), 1.0)
+        self.assertGreater(replay_buffer.size, 0)
+
+        loss_output = trainer.train_step(rollout_batch)
+        self.assertTrue(jnp.isfinite(loss_output.total_loss))
 
 
 if __name__ == "__main__":

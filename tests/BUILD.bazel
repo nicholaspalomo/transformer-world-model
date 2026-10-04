@@ -37,5 +37,16 @@ py_test(
         "//twm:algorithms",
         "//twm:envs",
         "//twm:models",
+        "//twm:utils",
     ],
 )
+
+py_test(
+    name = "checkpoint_test",
+    srcs = ["checkpoint_test.py"],
+    deps = [
+        "//twm:models",
+        "//twm:utils",
+    ],
+)
+

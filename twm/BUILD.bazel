@@ -12,6 +12,7 @@ py_library(
     name = "utils",
     srcs = glob(["utils/*.py"]),
     deps = [
+        requirement("flax"),
         requirement("jax"),
         requirement("flashbax"),
         requirement("numpy"),

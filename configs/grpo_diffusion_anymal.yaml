@@ -24,7 +24,18 @@ diffusion_policy:
   beta_start: 0.0001
   beta_end: 0.04
 
+world_model:
+  enabled: true
+  checkpoint_path: "checkpoints/world_model_anymal.npz"
+  buffer_path: "data/anymal_trajectories.npz"
+  embed_dim: 256
+  num_heads: 8
+  num_layers: 4
+  mlp_dim: 512
+
 grpo:
+  use_world_model: true # Approach 2: Train policy in World Model imagination (default)
+  imagination_horizon: 16 # Steps to hallucinate rollouts inside World Model
   group_size: 8 # G candidate rollouts per state
   batch_size: 8 # B parallel environments
   rollout_horizon: 16 # Steps per rollout horizon H
@@ -37,3 +48,4 @@ grpo:
   num_epochs: 4 # Optimization epochs per batch
   num_iterations: 50 # Total GRPO training iterations
   seed: 42
+

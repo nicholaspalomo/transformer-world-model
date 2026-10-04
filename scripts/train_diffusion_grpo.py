@@ -11,6 +11,9 @@ from flax import nnx
 from twm.algorithms.diffusion_grpo import DiffusionGRPOConfig, DiffusionGRPOTrainer
 from twm.envs.anymal_env import ANYmalBEnv
 from twm.models.diffusion_policy import DiffusionPolicy
+from twm.models.transformer import TransformerWorldModel
+from twm.utils.buffer import TrajectoryReplayBuffer
+from twm.utils.checkpoint import load_checkpoint, save_checkpoint
 from twm.utils.prng import PRNGSequence
 
 
@@ -84,6 +87,30 @@ def main():
         default=0.3,
         help="Action scaling factor around nominal pose (default: 0.3)",
     )
+    parser.add_argument(
+        "--use_world_model",
+        type=lambda v: str(v).lower() in ("true", "1", "yes"),
+        default=True,
+        help="Use Transformer World Model for imagined rollouts (Approach 2, default: True)",
+    )
+    parser.add_argument(
+        "--world_model_checkpoint",
+        type=str,
+        default="checkpoints/world_model_anymal.npz",
+        help="Path to trained World Model checkpoint",
+    )
+    parser.add_argument(
+        "--save_policy_checkpoint",
+        type=str,
+        default="checkpoints/diffusion_policy_anymal.npz",
+        help="Path to save trained Diffusion Policy checkpoint",
+    )
+    parser.add_argument(
+        "--buffer_path",
+        type=str,
+        default="data/anymal_trajectories.npz",
+        help="Path to trajectory replay buffer for grounding transitions",
+    )
     args = parser.parse_args()
 
     # Load YAML config if present
@@ -94,12 +121,13 @@ def main():
 
     grpo_cfg = cfg.get("grpo", {})
     diff_cfg = cfg.get("diffusion_policy", {})
+    wm_cfg = cfg.get("world_model", {})
 
     # Resolve config values with CLI overrides
     seed = grpo_cfg.get("seed", args.seed) if args.seed == 42 else args.seed
     num_iterations = (
         grpo_cfg.get("num_iterations", args.num_iterations)
-        if args.num_iterations == 50
+        if args.num_iterations == 25
         else args.num_iterations
     )
     group_size = (
@@ -123,11 +151,25 @@ def main():
         if args.learning_rate == 3e-4
         else args.learning_rate
     )
+    use_world_model = (
+        grpo_cfg.get("use_world_model", args.use_world_model)
+        if args.use_world_model is True
+        else args.use_world_model
+    )
+    wm_checkpoint = wm_cfg.get("checkpoint_path", args.world_model_checkpoint)
+    buf_path = wm_cfg.get("buffer_path", args.buffer_path)
+
+    rollout_engine = (
+        "Causal Transformer World Model (Approach 2 Imagination)"
+        if use_world_model
+        else "Brax ANYmal Physics Simulation"
+    )
 
     print("==========================================================================")
     print("  GRPO-Style Diffusion Policy Training for ANYmal Quadruped Walking")
     print("==========================================================================")
     print("  Configuration:")
+    print(f"    - Rollout Mode Engine       : {rollout_engine}")
     print(f"    - Diffusion Reverse Steps K : {num_timesteps}")
     print(f"    - Group Size G              : {group_size} rollouts / state")
     print(f"    - Parallel States B         : {batch_size}")
@@ -141,7 +183,7 @@ def main():
     prng = PRNGSequence(seed=seed)
 
     # 1. Initialize ANYmal Environment with Lower-Level PD Controller
-    print("\n[1/3] Initializing ANYmal B Environment with Joint PD Controller...")
+    print("\n[1/4] Initializing ANYmal B Environment with Joint PD Controller...")
     env = ANYmalBEnv(
         backend="positional",
         kp=args.kp,
@@ -152,7 +194,7 @@ def main():
     print(f"  ✓ ANYmal Env Loaded: Obs Dim = {env.observation_size}, Act Dim = {env.action_size}")
 
     # 2. Initialize Flax NNX Diffusion Policy
-    print("\n[2/3] Initializing Flax NNX Diffusion Policy Network...")
+    print("\n[2/4] Initializing Flax NNX Diffusion Policy Network...")
     policy_rngs = nnx.Rngs(params=prng.next())
     policy = DiffusionPolicy(
         state_dim=env.observation_size,
@@ -164,8 +206,45 @@ def main():
     )
     print("  ✓ Diffusion Policy Initialized")
 
-    # 3. Setup GRPO Trainer
-    print("\n[3/3] Setting up GRPO Trainer (Critic-Free Group Advantage Normalization)...")
+    # 3. Setup Transformer World Model & Replay Buffer (Approach 2 default)
+    world_model = None
+    replay_buffer = None
+    if use_world_model:
+        print("\n[3/4] Initializing Transformer World Model for Imagined Rollouts...")
+        wm_rngs = nnx.Rngs(params=prng.next())
+        world_model = TransformerWorldModel(
+            state_dim=env.observation_size,
+            action_dim=env.action_size,
+            embed_dim=wm_cfg.get("embed_dim", 256),
+            num_heads=wm_cfg.get("num_heads", 8),
+            num_layers=wm_cfg.get("num_layers", 4),
+            mlp_dim=wm_cfg.get("mlp_dim", 512),
+            rngs=wm_rngs,
+        )
+        if os.path.exists(wm_checkpoint):
+            load_checkpoint(world_model, wm_checkpoint)
+            print(f"  ✓ Loaded World Model Checkpoint: {wm_checkpoint}")
+        else:
+            print(
+                f"  ℹ️ World Model checkpoint not found at {wm_checkpoint} (using initialized model)"
+            )
+
+        # Setup replay buffer for grounding transitions
+        if os.path.exists(buf_path):
+            replay_buffer = TrajectoryReplayBuffer.load_from_file(buf_path, max_capacity=50000)
+            print(f"  ✓ Loaded Replay Buffer ({replay_buffer.size} transitions) from {buf_path}")
+        else:
+            replay_buffer = TrajectoryReplayBuffer(
+                max_capacity=50000,
+                state_dim=env.observation_size,
+                action_dim=env.action_size,
+            )
+            print("  ℹ️ Initialized fresh Replay Buffer for real-world grounding")
+    else:
+        print("\n[3/4] Skipping World Model (Direct Physics Simulation mode)")
+
+    # 4. Setup GRPO Trainer
+    print("\n[4/4] Setting up GRPO Trainer (Critic-Free Group Advantage Normalization)...")
     grpo_config = DiffusionGRPOConfig(
         group_size=group_size,
         batch_size=batch_size,
@@ -175,12 +254,16 @@ def main():
         beta_kl=0.04,
         learning_rate=learning_rate,
         num_epochs=4,
+        use_world_model=use_world_model,
+        imagination_horizon=rollout_horizon,
     )
     trainer = DiffusionGRPOTrainer(
         policy=policy,
         env=env,
         config=grpo_config,
         ref_policy=None,  # Standard GRPO empirical KL regularization against pi_old
+        world_model=world_model,
+        replay_buffer=replay_buffer,
     )
     print("  ✓ GRPO Trainer Ready")
 
@@ -250,6 +333,15 @@ def main():
     print(
         f"  Final Mean Return: {history[-1]['mean_return']:.2f} | Final Forward Vel: {history[-1]['fwd_vel']:.3f} m/s"
     )
+
+    # Save trained artifacts
+    print("\n=== Saving Checkpoints ===")
+    policy_save_path = save_checkpoint(policy, args.save_policy_checkpoint)
+    print(f"  ✓ Saved Diffusion Policy Checkpoint -> {policy_save_path}")
+
+    if replay_buffer is not None and replay_buffer.size > 0:
+        buf_save_path = replay_buffer.save(buf_path)
+        print(f"  ✓ Saved Replay Buffer ({replay_buffer.size} transitions) -> {buf_save_path}")
 
     return policy, history
 

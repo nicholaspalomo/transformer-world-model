@@ -59,5 +59,6 @@ py_binary(
         "//twm:algorithms",
         "//twm:envs",
         "//twm:models",
+        "//twm:utils",
     ],
 )

@@ -54,6 +54,14 @@ def main():
             state, obs = env.reset(prng.next())
 
     print(f"Buffer populated with {buffer.size} transitions.")
+    save_path = (
+        "data/anymal_trajectories.npz"
+        if "anymal" in args.env_name.lower()
+        else f"data/{args.env_name}_trajectories.npz"
+    )
+    saved_file = buffer.save(save_path)
+    print(f"✓ Replay buffer with {buffer.size} transitions saved to {saved_file}")
+
     print(f"Testing sequence sampling with window size K = {args.seq_len}...")
 
     sampled_batch = buffer.sample_sequences(

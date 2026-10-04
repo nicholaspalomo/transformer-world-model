@@ -243,9 +243,11 @@ anymal_diffusion_kinematics.png
 # VNC / container scratch
 .twm-vnc/
 
-# Generated experiment artifacts (regenerate with `make visualize*`)
-rollout_comparison.png
-runs/
+# Generated experiment & pipeline artifacts (regenerate with `make pipeline` / `make visualize*`)
+*.npz
+*.npy
+data/
 checkpoints/
+runs/
 outputs/
 wandb/

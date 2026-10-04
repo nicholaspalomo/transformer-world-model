@@ -4,6 +4,69 @@ Implementation of **Group Relative Policy Optimization (GRPO)** for a **Diffusio
 
 ---
 
+## 🏗️ System Architecture & Dual-Pathway Block Diagram
+
+The repository unites two core paradigms for continuous robotic quadruped control:
+
+```text
+                                      ┌─────────────────────────────────────────────────────────────┐
+                                      │             Brax / MuJoCo Physics Engine                    │
+                                      │  ANYmal B: 12 Actuated Joints, 35-dim Observation Vector    │
+                                      │  Low-Level Joint PD Impedance Controller (kp=50.0, kd=1.5)  │
+                                      └──────────────┬───────────────────────────────▲──────────────┘
+                                                     │ Transitions (s, a, r, s')     │ PD Action Targets
+                                                     ▼                               │
+┌─────────────────────────────────────────────────────────────────────────┐          │
+│                      Pathway A: Transformer World Model                 │          │
+│                                                                         │          │
+│ 1. scripts/01_collect_data.py   ──► TrajectoryReplayBuffer (Sequences)  │          │
+│ 2. scripts/02_train_model.py    ──► TransformerWorldModel (Flax NNX)    │          │
+│ 3. scripts/03_evaluate_mppi.py  ──► MPPIPlanner (jax.lax.scan rollouts) ┼──────────┘
+└────────────────────────────────────┬────────────────────────────────────┘          │
+                                     │ Imagined Rollouts                             │
+                                     ▼ (Dyna-Style RL)                               │
+┌─────────────────────────────────────────────────────────────────────────┐          │
+│                     Pathway B: GRPO Diffusion Policy                    │          │
+│                                                                         │          │
+│ • DiffusionPolicy (K-step reverse denoising to a in [-1, 1]^12)         │          │
+│ • DiffusionGRPOTrainer (Critic-free group advantage normalization)      │          │
+│ • scripts/train_diffusion_grpo.py ──────────────────────────────────────┴──────────┘
+```
+
+### Dual-Pathway Flowchart
+
+```mermaid
+flowchart TD
+    subgraph Env ["Brax / MuJoCo Physics Engine"]
+        ROBOT["ANYmal B State s_t ∈ ℝ³⁵<br/>• Joint Angles Δq (12)<br/>• Joint Velocities q̇ (12)<br/>• Base Height z (1)<br/>• Orientation Quat (4)<br/>• Base Lin/Ang Vel (6)"]
+        PD["Low-Level Joint PD Controller<br/>τ = clip(k_p (q_target - q) - k_d q̇, -40, 40) Nm"]
+        PHYSICS["Physics Simulation Step (Brax)<br/>Reward: Forward velocity, height, upright alignment"]
+        ROBOT --> PD --> PHYSICS --> ROBOT
+    end
+
+    subgraph PathwayA ["Pathway A: Transformer World Model & MPPI Planning"]
+        COLLECT["scripts/01_collect_data.py<br/>Exploration rollouts"]
+        BUFFER["TrajectoryReplayBuffer<br/>Sequence buffer: (s, a, r, s', d)"]
+        TWM["TransformerWorldModel (Flax NNX)<br/>Causal Multi-Head Attention + Dynamics Head<br/>scripts/02_train_model.py"]
+        MPPI["MPPIPlanner (jax.lax.scan)<br/>scripts/03_evaluate_mppi.py<br/>Rolls out N=1000 candidate sequences"]
+        COLLECT --> BUFFER --> TWM --> MPPI
+    end
+
+    subgraph PathwayB ["Pathway B: GRPO Diffusion Policy"]
+        DIFF["DiffusionPolicy (Flax NNX)<br/>Reverse denoising chain (K timesteps)"]
+        GRPO["DiffusionGRPOTrainer (Critic-Free)<br/>scripts/train_diffusion_grpo.py<br/>Group sampling (G candidates) + Advantage norm"]
+        DIFF <--> GRPO
+    end
+
+    PHYSICS -. "Transitions (s, a, r, s')" .-> COLLECT
+    MPPI -- "Optimal action a*" --> PD
+    GRPO -- "Candidate actions a⁽ᵍ⁾" --> PD
+    PHYSICS -. "Returns R⁽ᵍ⁾" .-> GRPO
+    TWM -. "Imagined rollouts (Dyna-style RL)" .-> GRPO
+```
+
+---
+
 ## 🌟 GRPO Diffusion Policy Architecture & Block Diagram
 
 ```
@@ -201,28 +264,35 @@ Every target also works unchanged inside the container — the Makefile detects
 ### Run things
 
 ```bash
-make test           # unit tests (both *_test.py and test_*.py discovery patterns)
-make lint           # Ruff + Flake8 + the IFTTT cross-file validator
-make format         # Ruff + Black
-make ci-local       # the full CI workflow locally
-make bazel-build    # Bazel build, inside the container (the host has no C toolchain)
-make bazel-test     # Bazel tests
+# Quality & Tests
+make test              # unit tests (both *_test.py and test_*.py discovery patterns)
+make lint              # Ruff + Flake8 + the IFTTT cross-file validator
+make format            # Ruff + Black
+make ci-local          # the full CI workflow locally
+make bazel-test        # Bazel tests inside the container
 
-make train-grpo     # GRPO diffusion-policy training on ANYmal B
-make visualize-grpo # telemetry plot + interactive 3D HTML
-make collect-anymal # ANYmal B data collection into the replay buffer
-make train          # Transformer World Model training
-make evaluate       # closed-loop MPPI evaluation
+# Full End-to-End ANYmal Locomotion Pipeline
+make pipeline          # Run complete 5-stage pipeline end-to-end
+make pipeline-smoke    # Rapid smoke test of all 5 stages (< 1 min)
+
+# Individual Pipeline Stages
+make collect-anymal    # Stage 1: Collect ANYmal B data -> data/anymal_trajectories.npz
+make train-anymal-wm   # Stage 2: Train Transformer World Model -> checkpoints/world_model_anymal.npz
+make train-grpo        # Stage 3: Train Diffusion Policy in WM imagination -> checkpoints/diffusion_policy_anymal.npz
+make evaluate-anymal   # Stage 4: Closed-loop MPPI evaluation with learned World Model
+make visualize-grpo    # Stage 5: Roll out trained policy -> anymal_diffusion_walk.html & kinematics PNG
+make clean-pipeline    # Clean generated replay buffers, checkpoints, and visual artifacts
 ```
 
 `make help` lists every target.
 
-> **Status** — no checkpointing is implemented yet: nothing in `twm/` or `scripts/`
-> saves or loads model weights. `make evaluate`, `make visualize-anymal` and
-> `make visualize-grpo` therefore each construct a **freshly initialised, untrained**
-> model, and `make collect-data` writes no artifact for `make train` to read. The
-> committed `anymal_diffusion_*.{png,html}` are renders of an untrained policy, not
-> of a trained gait.
+> **Approach 2 Default (World Model Imagination)** — Policy training is driven primarily through
+> the **Transformer World Model** in imagination. The pipeline is fully checkpointed and connected:
+> 1. `make collect-anymal`: Collects exploratory ANYmal transitions into `data/anymal_trajectories.npz`.
+> 2. `make train-anymal-wm`: Trains the Causal Transformer World Model on the replay buffer and saves `checkpoints/world_model_anymal.npz`.
+> 3. `make train-grpo`: Optimizes the Diffusion Policy via GRPO where multi-step rollouts are evaluated inside the learned World Model dynamics in pure JAX, with grounding transitions updating the replay buffer. Saves `checkpoints/diffusion_policy_anymal.npz`.
+> 4. `make evaluate-anymal`: Runs closed-loop MPPI planning loaded from the trained World Model checkpoint.
+> 5. `make visualize-grpo`: Evaluates the trained diffusion policy in closed-loop simulation, producing kinematic plots and an interactive 3D HTML rollout.
 
 ---
 

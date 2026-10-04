@@ -107,12 +107,13 @@ else
 endif
 
 .PHONY: help env ports doctor install test test-all lint format check-ifttt install-hooks \
-        ci-local collect-data collect-anymal train evaluate evaluate-anymal visualize \
+        ci-local pipeline pipeline-anymal pipeline-smoke collect-data collect-anymal \
+        train train-anymal-wm train-wm evaluate evaluate-anymal visualize \
         visualize-anymal train-grpo visualize-grpo tensorboard \
         bazel-build bazel-test bazel-clean lock-deps \
         docker-build docker-up docker-up-gpu docker-down docker-restart docker-shell \
         docker-logs docker-status docker-clean \
-        start-vnc stop-vnc vnc-status check-zombies clean clean-artifacts
+        start-vnc stop-vnc vnc-status check-zombies clean clean-artifacts clean-pipeline
 
 help:
 	@echo "================================================================="
@@ -151,16 +152,22 @@ help:
 	@echo "    make bazel-build       Build all Bazel targets"
 	@echo "    make bazel-test        Run all Bazel tests"
 	@echo ""
-	@echo "  Experiments"
+	@echo "  Locomotion Pipeline (ANYmal B)"
+	@echo "    make pipeline          Run full pipeline (collect -> train WM -> GRPO in imagination -> eval -> vis)"
+	@echo "    make pipeline-smoke    Rapid smoke test of the end-to-end pipeline"
+	@echo "    make collect-anymal    Collect ANYmal transitions into data/anymal_trajectories.npz"
+	@echo "    make train-anymal-wm   Train Causal Transformer World Model on ANYmal data"
+	@echo "    make train-grpo        Train Diffusion Policy in World Model imagination (GRPO)"
+	@echo "    make evaluate-anymal   Closed-loop MPPI evaluation with World Model (ANYmal B)"
+	@echo "    make visualize-grpo    Diffusion policy telemetry plot + 3D HTML"
+	@echo "    make visualize-anymal  ANYmal B simulation on the VNC display + 3D HTML"
+	@echo "    make clean-pipeline    Remove generated replay buffers, checkpoints, and visual artifacts"
+	@echo ""
+	@echo "  Experiments (Ant & Generic)"
 	@echo "    make collect-data      Milestone 1: Brax data collection (Ant)"
-	@echo "    make collect-anymal    Collect ANYmal B data into the replay buffer"
 	@echo "    make train             Milestones 2 & 3: train the Transformer World Model"
 	@echo "    make evaluate          Milestone 4: closed-loop MPPI evaluation (Ant)"
-	@echo "    make evaluate-anymal   Milestone 4: closed-loop MPPI evaluation (ANYmal B)"
-	@echo "    make train-grpo        Train the diffusion policy with GRPO on ANYmal B"
 	@echo "    make visualize         Rollout comparison plot (real vs imagined)"
-	@echo "    make visualize-anymal  ANYmal B simulation on the VNC display + 3D HTML"
-	@echo "    make visualize-grpo    Diffusion policy telemetry plot + 3D HTML"
 	@echo ""
 	@echo "  Cleanup"
 	@echo "    make clean             Remove caches and byte-compiled files"
@@ -321,7 +328,84 @@ lock-deps:
 	@$(PYTHON) tools/write_lock.py /tmp/twm-freeze.txt requirements_lock.txt
 	@echo "✅ requirements_lock.txt regenerated."
 
-# ---------------------------------------------------------------- experiments
+# ---------------------------------------------------------------- pipeline & experiments
+# Configurable parameters for ANYmal World Model & Diffusion Policy Pipeline.
+# Override on the command line, e.g.: make pipeline-anymal COLLECT_STEPS=5000 WM_TRAIN_STEPS=500
+DATA_PATH         ?= data/anymal_trajectories.npz
+WM_CHECKPOINT     ?= checkpoints/world_model_anymal.npz
+POLICY_CHECKPOINT ?= checkpoints/diffusion_policy_anymal.npz
+COLLECT_STEPS     ?= 2000
+WM_TRAIN_STEPS    ?= 200
+GRPO_ITERATIONS   ?= 25
+EVAL_SAMPLES      ?= 20
+EVAL_HORIZON      ?= 5
+
+pipeline: pipeline-anymal
+
+pipeline-anymal:
+	@echo "================================================================="
+	@echo "  🚀 Starting Full ANYmal World Model & Policy Pipeline"
+	@echo "================================================================="
+	@echo "  [Stage 1/5] Collecting exploratory ANYmal locomotion data..."
+	$(RUN_PY) scripts/01_collect_data.py --env_name anymal_b --num_steps $(COLLECT_STEPS)
+	@echo ""
+	@echo "  [Stage 2/5] Training Causal Transformer World Model on ANYmal transitions..."
+	$(RUN_PY) scripts/02_train_model.py --data_path $(DATA_PATH) --save_checkpoint $(WM_CHECKPOINT) --num_steps $(WM_TRAIN_STEPS)
+	@echo ""
+	@echo "  [Stage 3/5] Training Diffusion Policy in World Model Imagination (GRPO)..."
+	$(RUN_PY) scripts/train_diffusion_grpo.py --config configs/grpo_diffusion_anymal.yaml \
+		--num_iterations $(GRPO_ITERATIONS) --use_world_model True \
+		--world_model_checkpoint $(WM_CHECKPOINT) --save_policy_checkpoint $(POLICY_CHECKPOINT) \
+		--buffer_path $(DATA_PATH)
+	@echo ""
+	@echo "  [Stage 4/5] Closed-Loop MPPI Evaluation with World Model..."
+	$(RUN_PY) scripts/03_evaluate_mppi.py --env_name anymal_b --num_samples $(EVAL_SAMPLES) --horizon $(EVAL_HORIZON)
+	@echo ""
+	@echo "  [Stage 5/5] Visualizing Trained Diffusion Policy Rollout & Kinematics..."
+	$(RUN_PY) scripts/visualize_diffusion_policy.py --num_steps 150 \
+		--html_out anymal_diffusion_walk.html --plot_out anymal_diffusion_kinematics.png --headless \
+		--policy_checkpoint $(POLICY_CHECKPOINT)
+	@echo ""
+	@echo "================================================================="
+	@echo "  ✅ Full ANYmal Locomotion Pipeline Completed Successfully!"
+	@echo "  Generated Artifacts:"
+	@echo "    - Trajectory Data:            $(DATA_PATH)"
+	@echo "    - World Model Checkpoint:     $(WM_CHECKPOINT)"
+	@echo "    - Diffusion Policy Checkpoint:$(POLICY_CHECKPOINT)"
+	@echo "    - Kinematics Plot:            anymal_diffusion_kinematics.png"
+	@echo "    - 3D Interactive Walk:        anymal_diffusion_walk.html"
+	@echo "================================================================="
+
+pipeline-smoke:
+	@echo "================================================================="
+	@echo "  ⚡ Running ANYmal Pipeline Quick Smoke Test"
+	@echo "================================================================="
+	@echo "  [Smoke 1/5] Collecting sample transitions (100 steps)..."
+	$(RUN_PY) scripts/01_collect_data.py --env_name anymal_b --num_steps 100
+	@echo ""
+	@echo "  [Smoke 2/5] Training World Model for 20 steps..."
+	$(RUN_PY) scripts/02_train_model.py --data_path $(DATA_PATH) --save_checkpoint $(WM_CHECKPOINT) --num_steps 20
+	@echo ""
+	@echo "  [Smoke 3/5] Running 3 GRPO imagination iterations..."
+	$(RUN_PY) scripts/train_diffusion_grpo.py --config configs/grpo_diffusion_anymal.yaml \
+		--num_iterations 3 --use_world_model True \
+		--world_model_checkpoint $(WM_CHECKPOINT) --save_policy_checkpoint $(POLICY_CHECKPOINT) \
+		--buffer_path $(DATA_PATH)
+	@echo ""
+	@echo "  [Smoke 4/5] Evaluating MPPI (10 samples, horizon 3)..."
+	$(RUN_PY) scripts/03_evaluate_mppi.py --env_name anymal_b --num_samples 10 --horizon 3 --eval_steps 3
+	@echo ""
+	@echo "  [Smoke 5/5] Generating policy rollout visualization (30 steps)..."
+	$(RUN_PY) scripts/visualize_diffusion_policy.py --num_steps 30 \
+		--html_out anymal_diffusion_walk.html --plot_out anymal_diffusion_kinematics.png --headless \
+		--policy_checkpoint $(POLICY_CHECKPOINT)
+	@echo ""
+	@echo "  ✅ ANYmal Pipeline smoke test completed cleanly!"
+
+train-anymal-wm:
+	$(RUN_PY) scripts/02_train_model.py --data_path $(DATA_PATH) --save_checkpoint $(WM_CHECKPOINT) --num_steps $(WM_TRAIN_STEPS)
+
+train-wm: train-anymal-wm
 
 collect-data:
 	$(RUN_PY) scripts/01_collect_data.py --num_steps 100 --seq_len 32
@@ -352,11 +436,20 @@ visualize-anymal:
 	$(RUN_PY) scripts/visualize_anymal.py --num_steps 200 --pause_sec 60.0
 
 train-grpo:
-	$(RUN_PY) scripts/train_diffusion_grpo.py --config configs/grpo_diffusion_anymal.yaml
+	$(RUN_PY) scripts/train_diffusion_grpo.py --config configs/grpo_diffusion_anymal.yaml \
+		--num_iterations $(GRPO_ITERATIONS) --use_world_model True \
+		--world_model_checkpoint $(WM_CHECKPOINT) --save_policy_checkpoint $(POLICY_CHECKPOINT) \
+		--buffer_path $(DATA_PATH)
 
 visualize-grpo:
 	$(RUN_PY) scripts/visualize_diffusion_policy.py --num_steps 150 \
-		--html_out anymal_diffusion_walk.html --plot_out anymal_diffusion_kinematics.png --headless
+		--html_out anymal_diffusion_walk.html --plot_out anymal_diffusion_kinematics.png --headless \
+		--policy_checkpoint $(POLICY_CHECKPOINT)
+
+clean-pipeline:
+	rm -f $(DATA_PATH) $(WM_CHECKPOINT) $(POLICY_CHECKPOINT)
+	rm -f anymal_diffusion_walk.html anymal_diffusion_kinematics.png
+	@echo "🧹 Cleaned pipeline data, checkpoints, and visualization artifacts."
 
 # --port is the port INSIDE the container; the host mapping is HOST_TENSORBOARD_PORT.
 tensorboard:
@@ -453,6 +546,6 @@ clean:
 	find . -type f -name "*.pyc" -not -path "./third_party/*" -delete
 	rm -rf .pytest_cache .ruff_cache .mypy_cache
 
-clean-artifacts: clean
+clean-artifacts: clean clean-pipeline
 	rm -f rollout_comparison.png anymal_kinematics.png anymal_diffusion_kinematics.png
 	rm -f anymal_rollout.html anymal_diffusion_walk.html

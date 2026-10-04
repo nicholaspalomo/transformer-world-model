@@ -2,6 +2,7 @@
 """Milestone 4: Evaluate MPPI planner with jax.lax.scan vectorization in Brax env."""
 
 import argparse
+import os
 
 import jax.numpy as jnp
 from flax import nnx
@@ -9,6 +10,7 @@ from flax import nnx
 from twm.envs.brax_wrapper import BraxEnvWrapper
 from twm.models.transformer import TransformerWorldModel
 from twm.planner.mppi import MPPIPlanner
+from twm.utils.checkpoint import load_checkpoint
 from twm.utils.prng import PRNGSequence
 
 
@@ -35,12 +37,26 @@ def main():
     model = TransformerWorldModel(
         state_dim=env.observation_size,
         action_dim=env.action_size,
-        embed_dim=128,
-        num_heads=4,
-        num_layers=2,
-        mlp_dim=256,
+        embed_dim=256 if env.observation_size == 35 else 128,
+        num_heads=8 if env.observation_size == 35 else 4,
+        num_layers=4 if env.observation_size == 35 else 2,
+        mlp_dim=512 if env.observation_size == 35 else 256,
         rngs=rngs,
     )
+
+    model_checkpoint = (
+        "checkpoints/world_model_anymal.npz"
+        if "anymal" in args.env_name.lower()
+        else f"checkpoints/world_model_{args.env_name}.npz"
+    )
+    if os.path.exists(model_checkpoint):
+        try:
+            load_checkpoint(model, model_checkpoint)
+            print(f"✓ Loaded trained World Model checkpoint: {model_checkpoint}")
+        except Exception as e:
+            print(f"⚠️ Could not load checkpoint ({e}); proceeding with initialized model.")
+    else:
+        print(f"ℹ️ Model checkpoint '{model_checkpoint}' not found; using initialized model.")
 
     # Wrapper for MPPI forward dynamics
     def model_forward(states, actions):

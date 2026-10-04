@@ -10,6 +10,8 @@ from flax import nnx
 
 from twm.envs.anymal_env import ANYmalBEnv
 from twm.models.diffusion_policy import DiffusionPolicy, ReverseTrajectory
+from twm.models.transformer import TransformerWorldModel
+from twm.utils.buffer import TrajectoryReplayBuffer
 
 
 class GRPORolloutBatch(NamedTuple):
@@ -49,6 +51,8 @@ class DiffusionGRPOConfig:
     max_grad_norm: float = 1.0  # Gradient clipping max norm
     num_epochs: int = 4  # Optimization epochs per rollout batch
     adv_eps: float = 1e-6  # Epsilon for advantage standardization
+    use_world_model: bool = True  # Approach 2 default: train policy in World Model imagination
+    imagination_horizon: int = 16  # Rollout horizon inside the world model
 
 
 class DiffusionGRPOTrainer:
@@ -60,11 +64,15 @@ class DiffusionGRPOTrainer:
         env: ANYmalBEnv,
         config: DiffusionGRPOConfig | None = None,
         ref_policy: DiffusionPolicy | None = None,
+        world_model: TransformerWorldModel | None = None,
+        replay_buffer: TrajectoryReplayBuffer | None = None,
     ):
         self.policy = policy
         self.env = env
         self.config = config or DiffusionGRPOConfig()
         self.ref_policy = ref_policy
+        self.world_model = world_model
+        self.replay_buffer = replay_buffer
 
         # JIT-compiled environment step and reset functions for ultra-fast physics simulation
         self._step_fn = jax.jit(self.env.step)
@@ -99,16 +107,113 @@ class DiffusionGRPOTrainer:
         rng: jax.Array,
         env_states: list[Any],
     ) -> tuple[GRPORolloutBatch, list[Any]]:
-        """Collect G candidate rollouts for each of the B environment states.
+        """Collect G candidate rollouts per state using World Model imagination (default) or physical sim."""
+        if self.world_model is not None and self.config.use_world_model:
+            return self.sample_imagined_group_rollouts(rng, env_states)
+        return self.sample_physical_group_rollouts(rng, env_states)
 
-        Args:
-            rng: PRNGKey
-            env_states: List of B Brax environment states
+    def sample_imagined_group_rollouts(
+        self,
+        rng: jax.Array,
+        env_states: list[Any],
+    ) -> tuple[GRPORolloutBatch, list[Any]]:
+        """Collect G candidate rollouts imagined through the Causal Transformer World Model."""
+        B = len(env_states)
+        G = self.config.group_size
+        H = self.config.imagination_horizon
+        gamma = self.config.gamma
 
-        Returns:
-            rollout_batch: GRPORolloutBatch containing trajectories, returns, and advantages
-            next_env_states: Updated environment states
-        """
+        # Extract current observations [B, State_Dim]
+        curr_obs = jnp.stack([s.obs for s in env_states], axis=0)
+
+        # Broadcast observations to group dimension: [B, G, State_Dim]
+        group_obs = jnp.repeat(curr_obs[:, None, :], G, axis=1)
+
+        rng, rng_sample = jax.random.split(rng)
+        # Sample G reverse diffusion paths per state
+        traj: ReverseTrajectory = self.policy.sample_trajectory(
+            rng_sample, group_obs, deterministic=False
+        )
+
+        # Flatten B and G for vectorized parallel imagination rollouts across B*G candidates
+        flat_init_states = jnp.reshape(group_obs, (B * G, 1, self.env.observation_size))
+        flat_actions = jnp.reshape(traj.actions, (B * G, 1, self.env.action_size))
+
+        # Roll out H steps purely in JAX through TransformerWorldModel
+        def imagine_step(carry_state, _):
+            pred_next_states, pred_rewards, _ = self.world_model(carry_state, flat_actions)
+            return pred_next_states, (pred_next_states[:, 0, :], pred_rewards[:, 0])
+
+        _, (imagined_states, imagined_rewards) = jax.lax.scan(
+            imagine_step, flat_init_states, None, length=H
+        )
+        # imagined_states: [H, B*G, State_Dim]
+        # imagined_rewards: [H, B*G]
+
+        discounts = gamma ** jnp.arange(H)
+        total_returns = jnp.sum(imagined_rewards * discounts[:, None], axis=0)  # [B*G]
+        returns = jnp.reshape(total_returns, (B, G))
+
+        # Advance real environment along the best imagined candidate action
+        best_candidate_indices = jnp.argmax(returns, axis=1)  # [B]
+        next_env_states = []
+        for b_idx in range(B):
+            best_g = int(best_candidate_indices[b_idx])
+            best_action = traj.actions[b_idx, best_g]
+            sim_state = self._step_fn(env_states[b_idx], best_action)
+
+            # Store grounded real transition into replay buffer if attached
+            if self.replay_buffer is not None:
+                self.replay_buffer.add(
+                    env_states[b_idx].obs,
+                    best_action,
+                    float(sim_state.reward),
+                    sim_state.obs,
+                    float(sim_state.done),
+                )
+
+            if float(sim_state.done) > 0.5:
+                rng, rng_reset = jax.random.split(rng)
+                sim_state = self._reset_fn(rng_reset)
+            next_env_states.append(sim_state)
+
+        # Compute Group Relative Advantages
+        advantages = self.compute_group_advantages(returns)
+
+        # Extract telemetry metrics from imagined states
+        # ANYmal state: base linear vel x is index 29, torso height z is index 24
+        forward_vels = imagined_states[:, :, 29]
+        torso_heights = imagined_states[:, :, 24]
+        mean_actions_norm = jnp.mean(jnp.abs(flat_actions))
+
+        metrics = {
+            "mean_return": jnp.mean(returns),
+            "max_return": jnp.max(returns),
+            "min_return": jnp.min(returns),
+            "mean_forward_vel": jnp.mean(forward_vels),
+            "mean_torso_height": jnp.mean(torso_heights),
+            "mean_torque": mean_actions_norm * 40.0,
+            "imagined": jnp.array(1.0, dtype=jnp.float32),
+        }
+
+        rollout_batch = GRPORolloutBatch(
+            obs=group_obs,
+            actions=traj.actions,
+            trajectories=traj.trajectories,
+            old_log_probs=traj.log_probs,
+            returns=returns,
+            advantages=advantages,
+            metrics=metrics,
+        )
+
+        return rollout_batch, next_env_states
+
+    def sample_physical_group_rollouts(
+        self,
+        rng: jax.Array,
+        env_states: list[Any],
+    ) -> tuple[GRPORolloutBatch, list[Any]]:
+        """Collect G candidate rollouts for each of the B environment states using Brax physics."""
         B = len(env_states)
         G = self.config.group_size
         H = self.config.rollout_horizon
@@ -179,6 +284,7 @@ class DiffusionGRPOTrainer:
             "mean_forward_vel": jnp.mean(jnp.array(forward_vels)),
             "mean_torso_height": jnp.mean(jnp.array(torso_heights)),
             "mean_torque": jnp.mean(jnp.array(mean_torques)),
+            "imagined": jnp.array(0.0, dtype=jnp.float32),
         }
 
         rollout_batch = GRPORolloutBatch(
