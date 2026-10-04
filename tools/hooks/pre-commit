@@ -1,49 +1,75 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Git Pre-Commit Hook — Automatic formatting, Google3 linting & IFTTT validation
+# Git pre-commit hook: IFTTT directive validation, formatting and linting.
+#
+# Installed by `make install-hooks`.
 # ==============================================================================
-set -e
+set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$REPO_ROOT"
 
-# Add local virtual environment to PATH if present
-if [ -d "$REPO_ROOT/../venv/bin" ]; then
-    export PATH="$REPO_ROOT/../venv/bin:$PATH"
-elif [ -d "$REPO_ROOT/.venv/bin" ]; then
+# Prefer a repo-local virtualenv, then one already activated, then PATH. The old
+# "$REPO_ROOT/../venv/bin" entry pointed outside the repository at one developer's
+# scratch environment; on this machine that path is a bare system python with none
+# of the project's dependencies, so it made the hook silently pick the wrong tools.
+if [ -d "$REPO_ROOT/.venv/bin" ]; then
     export PATH="$REPO_ROOT/.venv/bin:$PATH"
+elif [ -n "${VIRTUAL_ENV:-}" ] && [ -d "${VIRTUAL_ENV}/bin" ]; then
+    export PATH="${VIRTUAL_ENV}/bin:$PATH"
 fi
 
-echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
+COMPOSE=(docker compose -f "$REPO_ROOT/docker-compose.yml")
+SERVICE=twm_dev
+
+# Record the exact content of every staged file BEFORE the formatters run, so we
+# can tell afterwards which ones they actually rewrote.
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)"
+declare -A BEFORE_HASH=()
+while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] && BEFORE_HASH["$f"]="$(git hash-object -- "$f")"
+done <<< "$STAGED_FILES"
+
+echo "🔍 Pre-commit: IFTTT cross-file directive linter..."
 if [ -f "tools/hooks/check_ifttt.py" ]; then
     python3 tools/hooks/check_ifttt.py
 fi
 
-echo "🔍 Pre-Commit Hook: Running code formatters and Google3 linters..."
+echo "🔍 Pre-commit: formatters and linters..."
 if command -v ruff >/dev/null 2>&1 && command -v black >/dev/null 2>&1; then
     make format
     make lint
-elif command -v docker >/dev/null 2>&1 && docker ps | grep -q "transformer_world_model_dev"; then
-    docker exec transformer_world_model_dev make format
-    docker exec transformer_world_model_dev make lint
+# Address the container through Compose. The previous version used the fixed name
+# `transformer_world_model_dev`, which docker-compose.yml no longer creates: the
+# container is now `${COMPOSE_PROJECT_NAME:-twm}-twm_dev-1`, so a name lookup would
+# always miss and the hook would silently fall through to the "offline" branch.
+elif command -v docker >/dev/null 2>&1 \
+     && "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -qx "${SERVICE}"; then
+    "${COMPOSE[@]}" exec -T "${SERVICE}" make format
+    "${COMPOSE[@]}" exec -T "${SERVICE}" make lint
 else
-    echo "⚠️ Warning: 'ruff'/'black' not found in PATH and container is offline. Running check_ifttt only."
+    echo "⚠️  ruff/black not on PATH and the container is not running; ran check_ifttt only."
 fi
 
-# Automatically stage any formatting changes to files that were staged for commit
-STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || true)
-
-if [ -n "$STAGED_FILES" ]; then
-    FORMATTED_COUNT=0
-    for file in $STAGED_FILES; do
-        if [ -f "$file" ] && [ -n "$(git status --porcelain "$file")" ]; then
-            git add "$file"
-            FORMATTED_COUNT=$((FORMATTED_COUNT + 1))
-        fi
-    done
-    if [ "$FORMATTED_COUNT" -gt 0 ]; then
-        echo "✨ Auto-formatted and staged $FORMATTED_COUNT file(s) before commit."
+# Re-stage ONLY files a formatter actually rewrote.
+#
+# The previous version re-added every staged file whose `git status --porcelain`
+# output was non-empty -- but for a file that is staged at all that output is
+# always non-empty (it starts with the index status, e.g. "M  f.py"). So the hook
+# unconditionally `git add`-ed the full worktree content of every file in the
+# commit. Anyone using `git add -p` to stage one hunk had the rest of their
+# work-in-progress swept into the commit without warning. Comparing content hashes
+# makes the condition mean what it always claimed to mean.
+RESTAGED=0
+for f in "${!BEFORE_HASH[@]}"; do
+    [ -f "$f" ] || continue
+    if [ "$(git hash-object -- "$f")" != "${BEFORE_HASH[$f]}" ]; then
+        git add -- "$f"
+        RESTAGED=$((RESTAGED + 1))
     fi
+done
+if [ "$RESTAGED" -gt 0 ]; then
+    echo "✨ Re-staged $RESTAGED file(s) that the formatters rewrote."
 fi
 
-echo "✅ Pre-commit checks completed successfully."
+echo "✅ Pre-commit checks passed."

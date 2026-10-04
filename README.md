@@ -153,39 +153,108 @@ transformer_world_model/
 
 ---
 
-## 🚀 Quickstart Guide
+## 🚀 Quickstart
 
-### 1. Run Unit Test Suite
+### Option A — the development container (recommended)
+
+Everything is pre-installed and the container is built to safely share a machine with
+other Docker stacks without interfering with them (thanks to automatic namespace isolation and port collision checks).
+
 ```bash
-# Run GRPO Diffusion Policy test suite
-PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python -m unittest tests/test_diffusion_grpo.py
+# 1. (Optional) Check for port collisions with other containers
+make ports
 
-# Run all repository tests
-PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python -m unittest discover tests "*_test.py"
+# 2. Build the development image
+make docker-build
+
+# 3. Start the container in the background
+make docker-up
+
+# 4. Drop into an interactive shell inside the container
+make docker-shell
 ```
 
-### 2. Train Diffusion Policy with GRPO
+If you encounter port collisions with another project, run `make env`, edit the `.env` file to choose different host ports, and try `make docker-up` again.
+
+The noVNC desktop is then at **<http://localhost:6095/vnc_lite.html?scale=true>**.
+On a host with an NVIDIA GPU and the container toolkit, `make docker-up-gpu`
+attaches one GPU instead. Tear down with `make docker-down` (or `make docker-clean`
+to drop the cached home volume too).
+
+> **Note** — `pyproject.toml` pins the CPU wheels of `jax`/`jaxlib`. `make
+> docker-up-gpu` reserves a device and turns off XLA preallocation, but until a
+> CUDA build of JAX is installed the workload still runs on CPU.
+
+### Option B — a local virtualenv
+
 ```bash
-PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python scripts/train_diffusion_grpo.py \
-    --config configs/grpo_diffusion_anymal.yaml \
-    --num_iterations 50 \
-    --group_size 8 \
-    --batch_size 8 \
-    --rollout_horizon 16 \
-    --num_timesteps 8 \
-    --learning_rate 3e-4
+python3 -m venv .venv && source .venv/bin/activate
+make install        # pip install -e ".[dev]"
+make doctor         # report what is and is not available
 ```
 
-### 3. Visualize ANYmal Walking Telemetry & 3D Rollout
+The Makefile discovers the interpreter (explicit `PYTHON=`, then an activated
+virtualenv, then `./.venv`, then `python3`), so no command below hardcodes a path.
+Every target also works unchanged inside the container — the Makefile detects
+`/.dockerenv` and skips the `docker compose exec` wrapper.
+
+### Run things
+
 ```bash
-PYTHONPATH=. /home/nico-palomo/workspace/venv/bin/python scripts/visualize_diffusion_policy.py \
-    --num_steps 150 \
-    --html_out anymal_diffusion_walk.html \
-    --plot_out anymal_diffusion_kinematics.png \
-    --headless
+make test           # unit tests (both *_test.py and test_*.py discovery patterns)
+make lint           # Ruff + Flake8 + the IFTTT cross-file validator
+make format         # Ruff + Black
+make ci-local       # the full CI workflow locally
+make bazel-build    # Bazel build, inside the container (the host has no C toolchain)
+make bazel-test     # Bazel tests
+
+make train-grpo     # GRPO diffusion-policy training on ANYmal B
+make visualize-grpo # telemetry plot + interactive 3D HTML
+make collect-anymal # ANYmal B data collection into the replay buffer
+make train          # Transformer World Model training
+make evaluate       # closed-loop MPPI evaluation
 ```
-- **Telemetry Plot**: Generated at `anymal_diffusion_kinematics.png` showing joint tracking errors, forward velocity, torso height, and PD motor torques.
-- **Interactive 3D HTML Viewer**: Generated at `anymal_diffusion_walk.html` (open in any web browser to rotate and inspect the 3D quadruped locomotion).
+
+`make help` lists every target.
+
+> **Status** — no checkpointing is implemented yet: nothing in `twm/` or `scripts/`
+> saves or loads model weights. `make evaluate`, `make visualize-anymal` and
+> `make visualize-grpo` therefore each construct a **freshly initialised, untrained**
+> model, and `make collect-data` writes no artifact for `make train` to read. The
+> committed `anymal_diffusion_*.{png,html}` are renders of an untrained policy, not
+> of a trained gait.
+
+---
+
+## 🐳 How the container stays out of other containers' way
+
+This machine runs more than one robotics stack. The compose setup is built so that
+bringing this one up cannot disturb the others.
+
+| Concern | What this repo does |
+|---|---|
+| **Host ports** | Defaults are `6095` (noVNC), `5915` (VNC), `6016` (TensorBoard), `8898` (Jupyter) — chosen clear of the canonical `5900/5901/6006/6080/8888` that most VNC and notebook containers grab. `make docker-up` preflights them and refuses to start on a collision, naming what to change. Its own already-running container is not counted as a collision. |
+| **Names** | `COMPOSE_PROJECT_NAME` (default `twm`) namespaces the container, network, image and volumes. No fixed `container_name`, so a second checkout just needs a different project name in its `.env`. |
+| **Exposure** | Ports bind to `127.0.0.1` by default (`BIND_ADDR`). The VNC server runs `-nopw`, so it is never put on the LAN unless you ask. |
+| **IPC** | A private IPC namespace with an explicit 4 GB `/dev/shm`. `ipc: host` would share the host's shared-memory and semaphore namespace with every other `ipc: host` container — and would silently make `shm_size` a no-op. |
+| **CPU / memory** | `cpus` and `mem_limit` (`TWM_CPUS`, `TWM_MEM`) with `OMP_NUM_THREADS` kept in step, so XLA does not take one thread per host core and starve the neighbours. |
+| **Process reaping** | `init: true` runs tini as PID 1, so the Xvfb/x11vnc/websockify processes orphaned on a VNC restart are reaped instead of piling up as unkillable zombies. |
+| **File ownership** | The container runs as the host UID/GID, so it never leaves root-owned files in the bind-mounted working tree. |
+| **Caches** | Bazel's output base, the pip cache and shell history live in a project-scoped named volume, not in the host `~/.cache`. `make docker-clean` removes only this project's volumes. |
+| **Host home** | `~/.gitconfig` and `~/.ssh` are mounted read-only, with an empty stand-in when the host has neither — so `docker compose up` never creates stray files in your home. |
+| **Build context** | `.dockerignore` keeps `.git` and the ~700 MB of `third_party/` submodules out of the build context, which would otherwise be uploaded to the shared daemon on every build. |
+
+To run two checkouts at once, put this in the second one's `.env` (values unquoted):
+
+```ini
+COMPOSE_PROJECT_NAME=twm-experiment
+HOST_NOVNC_PORT=6096
+HOST_VNC_PORT=5916
+HOST_TENSORBOARD_PORT=6017
+HOST_JUPYTER_PORT=8899
+```
+
+Everything overridable is documented in [`.env.example`](.env.example).
 
 ---
 

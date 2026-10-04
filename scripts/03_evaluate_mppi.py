@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Milestone 4: Evaluate MPPI Planner with jax.lax.scan vectorization in Brax env."""
+"""Milestone 4: Evaluate MPPI planner with jax.lax.scan vectorization in Brax env."""
 
 import argparse
 

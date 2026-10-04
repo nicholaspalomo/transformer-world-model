@@ -1,0 +1,29 @@
+# ==============================================================================
+# NVIDIA GPU overlay for docker-compose.yml.
+#
+#     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#     make docker-up-gpu
+#
+# Requires the NVIDIA Container Toolkit on the host. Kept as a separate file so the
+# CPU path still comes up on machines without a GPU instead of failing at `up`.
+#
+# `count: 1` rather than `all`: this machine's GPU is shared with other stacks, and
+# reserving every device would take the whole GPU away from them. Raise it, or set
+# NVIDIA_VISIBLE_DEVICES to a specific UUID, if you really want more.
+# ==============================================================================
+
+services:
+  twm_dev:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility,graphics"
+      # JAX preallocates 75% of VRAM by default, which starves any other process on
+      # the same GPU. Take memory as needed instead.
+      XLA_PYTHON_CLIENT_PREALLOCATE: "false"
+      XLA_PYTHON_CLIENT_ALLOCATOR: "platform"

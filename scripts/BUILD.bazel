@@ -39,3 +39,25 @@ py_binary(
         "//twm:utils",
     ],
 )
+
+# These two were absent from the build graph entirely.
+py_binary(
+    name = "train_diffusion_grpo",
+    srcs = ["train_diffusion_grpo.py"],
+    deps = [
+        "//twm:algorithms",
+        "//twm:envs",
+        "//twm:models",
+        "//twm:utils",
+    ],
+)
+
+py_binary(
+    name = "visualize_diffusion_policy",
+    srcs = ["visualize_diffusion_policy.py"],
+    deps = [
+        "//twm:algorithms",
+        "//twm:envs",
+        "//twm:models",
+    ],
+)

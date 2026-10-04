@@ -9,7 +9,6 @@ from flax import nnx
 from twm.algorithms.diffusion_grpo import (
     DiffusionGRPOConfig,
     DiffusionGRPOTrainer,
-    GRPORolloutBatch,
 )
 from twm.envs.anymal_env import ANYmalBEnv
 from twm.envs.pd_controller import NOMINAL_JOINT_POS, JointPDController, PDControlOutput
@@ -45,9 +44,7 @@ class TestPDController(unittest.TestCase):
         current_qd = jnp.zeros(12, dtype=jnp.float32)
         q_target = NOMINAL_JOINT_POS + 0.1  # 0.1 rad error
 
-        out: PDControlOutput = self.controller.compute_torques(
-            q_target, current_q, current_qd
-        )
+        out: PDControlOutput = self.controller.compute_torques(q_target, current_q, current_qd)
 
         # Expected torque = 50 * 0.1 = 5.0 Nm
         expected_torque = 50.0 * 0.1
@@ -60,9 +57,7 @@ class TestPDController(unittest.TestCase):
         current_qd = jnp.zeros(12, dtype=jnp.float32)
         q_target = NOMINAL_JOINT_POS + 5.0  # 5 rad error -> 250 Nm raw torque
 
-        out: PDControlOutput = self.controller.compute_torques(
-            q_target, current_q, current_qd
-        )
+        out: PDControlOutput = self.controller.compute_torques(q_target, current_q, current_qd)
         self.assertTrue(jnp.all(out.torques <= 40.0))
         self.assertTrue(jnp.all(out.torques >= -40.0))
 
@@ -130,9 +125,7 @@ class TestDiffusionPolicy(unittest.TestCase):
         traj = self.policy.sample_trajectory(self.prng.next(), obs)
 
         # Re-evaluate log probabilities on the same sampled trajectories
-        recalc_lp, step_lps = self.policy.evaluate_trajectory_log_prob(
-            traj.trajectories, obs
-        )
+        recalc_lp, step_lps = self.policy.evaluate_trajectory_log_prob(traj.trajectories, obs)
 
         # Must match the sampling log probabilities exactly
         self.assertTrue(jnp.allclose(traj.log_probs, recalc_lp, atol=1e-4))
@@ -161,9 +154,7 @@ class TestDiffusionGRPOTrainer(unittest.TestCase):
             learning_rate=1e-3,
             num_epochs=2,
         )
-        self.trainer = DiffusionGRPOTrainer(
-            policy=self.policy, env=self.env, config=self.config
-        )
+        self.trainer = DiffusionGRPOTrainer(policy=self.policy, env=self.env, config=self.config)
 
     def test_group_advantage_normalization(self):
         # Returns for B=2, G=4

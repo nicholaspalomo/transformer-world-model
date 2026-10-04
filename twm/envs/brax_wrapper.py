@@ -54,7 +54,7 @@ class BraxEnvWrapper:
         # LINT.ThenChange(//twm/envs/anymal_env.py:env_specs, //configs/env_brax_ant.yaml:env_config, //configs/env_anymal_b.yaml:env_config, //Makefile:env_targets, //scripts/01_collect_data.py:env_args, //scripts/03_evaluate_mppi.py:env_args)
 
     def reset(self, rng: jax.Array) -> tuple[Any, jax.Array]:
-        """Reset environment with PRNGKey."""
+        """Reset environment with PRNGKey and return (state, obs)."""
         if _HAS_BRAX and self._env is not None:
             state = self._reset_fn(rng)
             return state, state.obs

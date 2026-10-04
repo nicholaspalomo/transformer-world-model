@@ -4,14 +4,35 @@ module(
 )
 
 # Bazel standard rules
-bazel_dep(name = "rules_python", version = "0.31.0")
+bazel_dep(name = "rules_python", version = "1.7.0")
+
+# LINT.IfChange(python_version)
+# Register an explicit interpreter. Without this, rules_python falls back to its
+# own default (3.11 for this release) while pip.parse below asked for 3.10, and
+# the two disagree silently until a wheel fails to resolve at build time.
+PYTHON_VERSION = "3.10"
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    is_default = True,
+    python_version = PYTHON_VERSION,
+)
+# LINT.ThenChange(//pyproject.toml:requires_python, //.github/workflows/ci.yml:python_version)
 
 # LINT.IfChange(dependencies)
+# requirements_lock must be a real PEP 508 requirements file. It previously named
+# //:pyproject.toml, which rules_python reads line-by-line as requirement
+# specifiers -- so it aborted on the first line of TOML punctuation and no target
+# could ever resolve a wheel. Regenerate the lock with `make lock-deps`.
+# hub_name must be unique across EVERY module in the graph, not just this one.
+# The generic "pip_deps" collides with the hub that the transitive `protobuf`
+# module declares, and Bazel fails the whole build with "Duplicate cross-module
+# pip hub named 'pip_deps'". Namespacing it to this project avoids that.
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
-    hub_name = "pip_deps",
-    python_version = "3.10",
-    requirements_lock = "//:pyproject.toml",
+    hub_name = "twm_pip",
+    python_version = PYTHON_VERSION,
+    requirements_lock = "//:requirements_lock.txt",
 )
-use_repo(pip, "pip_deps")
-# LINT.ThenChange(//pyproject.toml:dependencies)
+use_repo(pip, "twm_pip")
+# LINT.ThenChange(//pyproject.toml:dependencies, //requirements_lock.txt:lock)

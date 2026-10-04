@@ -5,8 +5,6 @@ import argparse
 import os
 import time
 
-import jax
-import jax.numpy as jnp
 import yaml
 from flax import nnx
 
@@ -92,21 +90,44 @@ def main():
     cfg = {}
     if os.path.exists(args.config):
         with open(args.config) as f:
-            cfg = yaml.safe_load(f)
+            cfg = yaml.safe_load(f) or {}
+
+    grpo_cfg = cfg.get("grpo", {})
+    diff_cfg = cfg.get("diffusion_policy", {})
 
     # Resolve config values with CLI overrides
-    seed = args.seed
-    num_iterations = args.num_iterations
-    group_size = args.group_size
-    batch_size = args.batch_size
-    rollout_horizon = args.rollout_horizon
-    num_timesteps = args.num_timesteps
-    learning_rate = args.learning_rate
+    seed = grpo_cfg.get("seed", args.seed) if args.seed == 42 else args.seed
+    num_iterations = (
+        grpo_cfg.get("num_iterations", args.num_iterations)
+        if args.num_iterations == 50
+        else args.num_iterations
+    )
+    group_size = (
+        grpo_cfg.get("group_size", args.group_size) if args.group_size == 8 else args.group_size
+    )
+    batch_size = (
+        grpo_cfg.get("batch_size", args.batch_size) if args.batch_size == 8 else args.batch_size
+    )
+    rollout_horizon = (
+        grpo_cfg.get("rollout_horizon", args.rollout_horizon)
+        if args.rollout_horizon == 16
+        else args.rollout_horizon
+    )
+    num_timesteps = (
+        diff_cfg.get("num_timesteps", args.num_timesteps)
+        if args.num_timesteps == 8
+        else args.num_timesteps
+    )
+    learning_rate = (
+        grpo_cfg.get("learning_rate", args.learning_rate)
+        if args.learning_rate == 3e-4
+        else args.learning_rate
+    )
 
     print("==========================================================================")
     print("  GRPO-Style Diffusion Policy Training for ANYmal Quadruped Walking")
     print("==========================================================================")
-    print(f"  Configuration:")
+    print("  Configuration:")
     print(f"    - Diffusion Reverse Steps K : {num_timesteps}")
     print(f"    - Group Size G              : {group_size} rollouts / state")
     print(f"    - Parallel States B         : {batch_size}")
@@ -128,9 +149,7 @@ def main():
         action_scale=args.action_scale,
         target_velocity=0.8,
     )
-    print(
-        f"  ✓ ANYmal Env Loaded: Obs Dim = {env.observation_size}, Act Dim = {env.action_size}"
-    )
+    print(f"  ✓ ANYmal Env Loaded: Obs Dim = {env.observation_size}, Act Dim = {env.action_size}")
 
     # 2. Initialize Flax NNX Diffusion Policy
     print("\n[2/3] Initializing Flax NNX Diffusion Policy Network...")
@@ -225,7 +244,9 @@ def main():
 
     total_time = time.time() - start_time
     print("-" * len(header))
-    print(f"\n✓ GRPO Training Completed in {total_time:.2f}s ({total_time / num_iterations:.2f}s / iter)")
+    print(
+        f"\n✓ GRPO Training Completed in {total_time:.2f}s ({total_time / num_iterations:.2f}s / iter)"
+    )
     print(
         f"  Final Mean Return: {history[-1]['mean_return']:.2f} | Final Forward Vel: {history[-1]['fwd_vel']:.3f} m/s"
     )

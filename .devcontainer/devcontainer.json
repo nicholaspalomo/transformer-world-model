@@ -1,0 +1,43 @@
+{
+  // VS Code / Dev Containers entry point. Reuses docker-compose.yml verbatim, so
+  // the isolation guarantees there (project-scoped names, non-colliding host
+  // ports, host UID/GID, private IPC namespace) apply to the editor flow too.
+  //
+  // Host-port overrides live in .env next to docker-compose.yml -- run `make env`
+  // on the host first if the defaults collide with another stack.
+  "name": "Transformer World Model",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "twm_dev",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "devuser",
+  "containerUser": "devuser",
+  // The image is built with the host's UID/GID already; letting the extension
+  // rewrite them would diverge from what docker-compose.yml's `user:` pins.
+  "updateRemoteUserUID": false,
+  "overrideCommand": false,
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "bazelbuild.vscode-bazel"
+      ]
+    }
+  },
+  // Forwarded inside the editor only. The real host publishing is in
+  // docker-compose.yml and is what `make ports` reports.
+  "forwardPorts": [6080, 5900, 6006, 8888],
+  "portsAttributes": {
+    "6080": { "label": "noVNC web desktop" },
+    "5900": { "label": "VNC (RFB)" },
+    "6006": { "label": "TensorBoard" },
+    "8888": { "label": "Jupyter" }
+  },
+  "postCreateCommand": "git config --global --add safe.directory /workspace"
+}

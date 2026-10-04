@@ -7,8 +7,21 @@ on:
       - 'user/**'
   pull_request:
     branches:
-      - main
       - '**'
+
+# Overlapping push and pull_request triggers ran every commit on a `user/**`
+# branch with an open PR twice, in parallel. Keep the newest run per ref only.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # LINT.IfChange(python_version)
+  PYTHON_VERSION: "3.10"
+  # LINT.ThenChange(//MODULE.bazel:python_version, //pyproject.toml:requires_python)
 
 jobs:
   lint-and-ifttt:
@@ -20,32 +33,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
 
-      - name: Install Linting & Formatting Dependencies
+      # Pinned to the same revisions as .pre-commit-config.yaml. Floating these
+      # meant a new ruff release could turn every PR red without a repo change,
+      # and could disagree with what the hooks enforce locally.
+      # LINT.IfChange(linter_versions)
+      - name: Install linters and formatters
         run: |
           python -m pip install --upgrade pip
-          pip install ruff black flake8 yapf
+          pip install 'ruff==0.4.4' 'black==24.4.2' 'flake8==7.0.0'
+      # LINT.ThenChange(//.pre-commit-config.yaml)
 
-      - name: Run Google IFTTT Directives Validator
-        run: |
-          python3 tools/hooks/check_ifttt.py
+      - name: IFTTT directive validator
+        run: python3 tools/hooks/check_ifttt.py
 
-      - name: Run Ruff Linter
-        run: |
-          ruff check .
+      - name: Ruff lint
+        run: ruff check .
 
-      - name: Run Ruff Format Check
-        run: |
-          ruff format --check .
+      - name: Ruff format check
+        run: ruff format --check .
 
-      - name: Run Black Format Check
-        run: |
-          black --check . --line-length=100
+      - name: Black format check
+        run: black --check . --line-length=100
 
   build-and-test:
     name: Build Repo & Run Unit Tests
@@ -53,18 +67,21 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # Submodules are fetched because third_party/ is pinned in .gitmodules.
+      # They are not imported by any first-party module, so this is purely to
+      # keep the checkout faithful; drop `submodules` if they are ever removed.
       - name: Checkout repository (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
 
-      - name: Install System Graphics & Simulation Libraries
+      - name: Install system graphics libraries
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             libgl1-mesa-glx \
@@ -74,35 +91,65 @@ jobs:
             xvfb \
             ffmpeg
 
-      - name: Install Bazel (Bazelisk)
-        run: |
-          sudo curl -fsSL https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /usr/local/bin/bazel
-          sudo chmod +x /usr/local/bin/bazel
-          bazel --version
-
-      - name: Install Python Dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -e ".[dev]"
 
-      - name: Cache Bazel Artifacts
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/bazel
-          key: ${{ runner.os }}-bazel-${{ hashFiles('MODULE.bazel', '**/BUILD.bazel') }}
-          restore-keys: |
-            ${{ runner.os }}-bazel-
-
-      - name: Run Unit Tests
+      # Two discovery patterns. tests/test_diffusion_grpo.py -- the GRPO and
+      # diffusion-policy suite, the largest test file in the repo -- is named the
+      # pytest way and matches neither `*_test.py` nor any Bazel target, so for as
+      # long as CI ran only the first pattern it never executed anywhere at all.
+      # LINT.IfChange(test_discovery)
+      - name: Unit tests
         run: |
           PYTHONPATH=. python -m unittest discover -s tests -p "*_test.py" -v
+          PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+      # LINT.ThenChange(//Makefile:test_discovery, //tools/ci_local.sh, //tests/BUILD.bazel)
 
-      - name: Test Milestone Scripts (Dry Run)
+      - name: Milestone scripts (smoke)
         run: |
           PYTHONPATH=. python scripts/01_collect_data.py --num_steps 20 --seq_len 10
           PYTHONPATH=. python scripts/02_train_model.py --num_steps 5 --batch_size 8
           PYTHONPATH=. python scripts/03_evaluate_mppi.py --num_samples 10 --horizon 5 --eval_steps 2
           PYTHONPATH=. python scripts/visualize_anymal.py --num_steps 5 --headless
+
+  bazel:
+    name: Bazel Build & Test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Bazelisk reads .bazelversion, so the version is pinned in the repo rather
+      # than floating on a `latest` release URL.
+      - name: Install Bazelisk
+        run: |
+          sudo curl -fsSL \
+            https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-linux-amd64 \
+            -o /usr/local/bin/bazel
+          sudo chmod +x /usr/local/bin/bazel
+          bazel --version
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: ${{ runner.os }}-bazel-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt', '**/BUILD.bazel') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      # The previous workflow installed Bazelisk and cached ~/.cache/bazel but
+      # never invoked bazel, so it paid the cost of the Bazel path while proving
+      # nothing about it -- which is how the build graph came to reference a
+      # non-existent requirements lock and omit source files the packages import.
+      - name: Bazel build
+        run: bazel build //...
+
+      - name: Bazel test
+        run: bazel test //...
 
   docker-build:
     name: Build Docker Container & Verify
@@ -110,18 +157,25 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository (with submodules)
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker Development Image
+      - name: Build development image
+        env:
+          COMPOSE_PROJECT_NAME: twm
         run: |
-          docker compose build
+          USER_ID=$(id -u) GROUP_ID=$(id -g) docker compose build
 
-      - name: Test Container Execution
+      # --entrypoint="" so the one-shot run does not fall into the image CMD
+      # (start_vnc.sh), which blocks forever on `tail -f /dev/null`.
+      - name: Run unit tests inside the container
+        env:
+          COMPOSE_PROJECT_NAME: twm
         run: |
-          docker compose run --rm twm_dev bash -c "PYTHONPATH=. python3 -m unittest discover -s tests -p '*_test.py' -v"
+          USER_ID=$(id -u) GROUP_ID=$(id -g) docker compose run --rm --no-deps \
+            --entrypoint="" twm_dev bash -lc '
+              PYTHONPATH=/workspace python -m unittest discover -s tests -p "*_test.py" -v &&
+              PYTHONPATH=/workspace python -m unittest discover -s tests -p "test_*.py" -v'

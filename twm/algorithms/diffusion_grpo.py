@@ -144,7 +144,7 @@ class DiffusionGRPOTrainer:
                 cand_return = 0.0
                 discount = 1.0
 
-                for h in range(H):
+                for _h in range(H):
                     sim_state = self._step_fn(sim_state, action_g)
                     cand_return += discount * float(sim_state.reward)
                     discount *= gamma
@@ -233,9 +233,7 @@ class DiffusionGRPOTrainer:
         total_loss = policy_loss + self.config.beta_kl * kl_penalty
 
         # Metrics
-        clip_fraction = jnp.mean(
-            (jnp.abs(ratios - 1.0) > self.config.clip_eps).astype(jnp.float32)
-        )
+        clip_fraction = jnp.mean((jnp.abs(ratios - 1.0) > self.config.clip_eps).astype(jnp.float32))
 
         loss_output = GRPOLossOutput(
             total_loss=total_loss,

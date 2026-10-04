@@ -1,0 +1,20 @@
+# Directories Bazel must not crawl.
+#
+# Without this, `bazel build //...` walks the four git submodules under
+# third_party/ (~700 MB, including brax's 97 MB docs tree and flax's notebooks),
+# reading every file to look for BUILD files. That is minutes of I/O per
+# invocation, and any stray BUILD/WORKSPACE file inside a submodule would be
+# picked up as part of this repo's package graph.
+third_party
+
+# .bazelrc sets --symlink_prefix=.bazel/, so every convenience symlink lands
+# under this one directory instead of as bazel-bin / bazel-out / bazel-testlogs /
+# bazel-<workspace> at the repo root. Leaving them visible makes Bazel -- and
+# ruff, pytest and find -- recurse into the output base through a symlink.
+.bazel
+
+# Tooling caches
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.venv

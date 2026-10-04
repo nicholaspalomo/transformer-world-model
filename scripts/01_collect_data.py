@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Milestone 1: Brax Data Collection Pipeline and Sequence Buffer sampling."""
+"""Milestone 1: Brax data collection pipeline and sequence buffer sampling."""
 
 import argparse
 

@@ -1,48 +1,77 @@
+load("@twm_pip//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_library")
 
 package(default_visibility = ["//visibility:public"])
 
+# srcs use glob() rather than hand-maintained lists. The lists had silently fallen
+# out of step with the tree: envs/pd_controller.py and models/diffusion_policy.py
+# were both missing even though the package __init__ files import them
+# unconditionally, so every dependent py_test failed at import under Bazel.
+
+py_library(
+    name = "utils",
+    srcs = glob(["utils/*.py"]),
+    deps = [
+        requirement("jax"),
+        requirement("flashbax"),
+        requirement("numpy"),
+    ],
+)
+
 py_library(
     name = "envs",
-    srcs = [
-        "envs/__init__.py",
-        "envs/anymal_env.py",
-        "envs/brax_wrapper.py",
-        "envs/tokenization.py",
+    srcs = glob(["envs/*.py"]),
+    # Without the MJCF in runfiles, ANYmalBEnv falls back to a stub whose step()
+    # returns a plain tuple, and every dependent test dies on `.obs`.
+    data = ["//assets:anymal_b"],
+    deps = [
+        requirement("brax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("numpy"),
+        # brax -> etils needs importlib_resources, but etils only declares it
+        # under an extra, so rules_python does not infer the edge from wheel
+        # metadata and it never reaches the runfiles tree. Without it `import
+        # brax` raises ModuleNotFoundError, anymal_env.py's try/except sets
+        # _HAS_BRAX = False, and the environment silently degrades to a stub
+        # that returns plain tuples -- surfacing much later as
+        # "AttributeError: 'tuple' object has no attribute 'obs'".
+        requirement("importlib_resources"),
+        requirement("etils"),
+        ":utils",
     ],
 )
 
 py_library(
     name = "models",
-    srcs = [
-        "models/__init__.py",
-        "models/attention.py",
-        "models/heads.py",
-        "models/transformer.py",
-    ],
+    srcs = glob(["models/*.py"]),
     deps = [
+        requirement("flax"),
+        requirement("jax"),
+        requirement("optax"),
         ":envs",
     ],
 )
 
 py_library(
     name = "planner",
-    srcs = [
-        "planner/__init__.py",
-        "planner/cost_funcs.py",
-        "planner/mppi.py",
-    ],
+    srcs = glob(["planner/*.py"]),
     deps = [
+        requirement("jax"),
         ":models",
     ],
 )
 
+# twm/algorithms/ had no target at all, so twm/algorithms/diffusion_grpo.py -- the
+# GRPO implementation this repository is named for -- was invisible to Bazel.
 py_library(
-    name = "utils",
-    srcs = [
-        "utils/__init__.py",
-        "utils/buffer.py",
-        "utils/prng.py",
+    name = "algorithms",
+    srcs = glob(["algorithms/*.py"]),
+    deps = [
+        requirement("jax"),
+        requirement("optax"),
+        ":envs",
+        ":models",
     ],
 )
 
@@ -50,6 +79,7 @@ py_library(
     name = "twm",
     srcs = ["__init__.py"],
     deps = [
+        ":algorithms",
         ":envs",
         ":models",
         ":planner",

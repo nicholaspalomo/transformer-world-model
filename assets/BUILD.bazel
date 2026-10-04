@@ -1,0 +1,18 @@
+package(default_visibility = ["//visibility:public"])
+
+# The ANYmal B MJCF plus its meshes and textures, as runfiles.
+#
+# twm/envs/anymal_env.py resolves scene.xml relative to its own __file__ and, if
+# the file is not there, silently falls back to a stub environment that returns
+# `(None, obs)` tuples instead of a brax State. Under Bazel that made every test
+# touching the environment fail with `AttributeError: 'tuple' object has no
+# attribute 'obs'` -- a message that says nothing about the real cause. Shipping
+# the assets into the runfiles tree is what makes the real environment load.
+filegroup(
+    name = "anymal_b",
+    srcs = glob([
+        "anybotics_anymal_b/*.xml",
+        "anybotics_anymal_b/assets/*.obj",
+        "anybotics_anymal_b/assets/*.png",
+    ]),
+)

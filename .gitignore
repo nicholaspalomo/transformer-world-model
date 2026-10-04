@@ -230,3 +230,22 @@ anymal_diffusion_walk.html
 rollout_comparison.png
 anymal_kinematics.png
 anymal_diffusion_kinematics.png
+
+# ------------------------------------------------------------------ this repo
+# Machine-local Docker Compose overrides: host ports, project name, credential
+# paths. Deliberately not tracked -- these are per-machine choices. See .env.example.
+.env
+
+# Bazel convenience symlinks (--symlink_prefix=.bazel/) and the repo-local disk cache
+.bazel/
+.bazel-cache/
+
+# VNC / container scratch
+.twm-vnc/
+
+# Generated experiment artifacts (regenerate with `make visualize*`)
+rollout_comparison.png
+runs/
+checkpoints/
+outputs/
+wandb/

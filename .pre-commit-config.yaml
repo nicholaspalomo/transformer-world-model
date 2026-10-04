@@ -37,5 +37,5 @@ repos:
         name: IFTTT Directive Validator & Code Formatter (make format)
         entry: tools/hooks/pre-commit
         language: script
-        types_or: [python, shell, make, markdown, yaml]
+        types_or: [python, shell, makefile, markdown, yaml]
         pass_filenames: false

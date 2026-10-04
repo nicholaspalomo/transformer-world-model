@@ -146,7 +146,7 @@ class ANYmalBEnv(PipelineEnv if _HAS_BRAX else object):
 
         # Upright metric: projection of base z-axis onto global vertical
         # qw^2 - qx^2 - qy^2 + qz^2 (dot product of body z-axis with world z-axis)
-        qw, qx, qy, qz = base_quat[0], base_quat[1], base_quat[2], base_quat[3]
+        qx, qy = base_quat[1], base_quat[2]
         upright_proj = 1.0 - 2.0 * (qx * qx + qy * qy)
 
         # Reward components

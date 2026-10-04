@@ -65,9 +65,7 @@ def visualize_diffusion_policy(
         rngs=policy_rngs,
     )
 
-    print(
-        f"Executing closed-loop diffusion control for {num_steps} simulation steps..."
-    )
+    print(f"Executing closed-loop diffusion control for {num_steps} simulation steps...")
 
     # History buffers for telemetry
     step_history = []
@@ -176,9 +174,7 @@ def visualize_diffusion_policy(
     )
     ax_h.set_ylabel("Torso Height (m)", color="crimson")
     ax_h.set_ylim(0.2, 0.7)
-    axes[1].set_title(
-        "Locomotion Performance: Velocity and Torso Height", fontweight="bold"
-    )
+    axes[1].set_title("Locomotion Performance: Velocity and Torso Height", fontweight="bold")
 
     # Plot 3: Mean Joint PD Torque
     axes[2].plot(
@@ -212,12 +208,8 @@ def visualize_diffusion_policy(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Visualize ANYmal Walking with Diffusion Policy"
-    )
-    parser.add_argument(
-        "--num_steps", type=int, default=150, help="Number of steps (default: 150)"
-    )
+    parser = argparse.ArgumentParser(description="Visualize ANYmal Walking with Diffusion Policy")
+    parser.add_argument("--num_steps", type=int, default=150, help="Number of steps (default: 150)")
     parser.add_argument(
         "--html_out",
         type=str,
@@ -230,9 +222,7 @@ def main():
         default="anymal_diffusion_kinematics.png",
         help="Output PNG path",
     )
-    parser.add_argument(
-        "--headless", action="store_true", default=True, help="Run headless"
-    )
+    parser.add_argument("--headless", action="store_true", default=True, help="Run headless")
     args = parser.parse_args()
 
     visualize_diffusion_policy(
