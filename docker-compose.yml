@@ -1,3 +1,25 @@
+# ==============================================================================
+# Development container for the Transformer World Model / GRPO Diffusion Policy.
+#
+# Everything that could collide with another stack on the same machine is a
+# variable with a default, and every default is chosen to be unique to this
+# project. Override any of them in a `.env` file next to this one -- Compose reads
+# it automatically. See .env.example.
+#
+#   docker compose up -d                                          # CPU
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d   # NVIDIA
+#
+# Prefer the Makefile (`make docker-up`, `make docker-up-gpu`): it also checks the
+# host ports are actually free first and prints the URLs that were published.
+# ==============================================================================
+
+# Names every container, network, image and volume this stack creates. Compose
+# would otherwise derive it from the directory name, so a rename or a second
+# checkout would silently produce a different set of names -- and `tools/ci_local.sh`
+# looks the image up by name. Set COMPOSE_PROJECT_NAME in .env to run two checkouts
+# side by side.
+name: ${COMPOSE_PROJECT_NAME:-twm}
+
 services:
   twm_dev:
     build:
@@ -7,25 +29,96 @@ services:
         USER_ID: "${USER_ID:-1000}"
         GROUP_ID: "${GROUP_ID:-1000}"
         USERNAME: "devuser"
-    container_name: transformer_world_model_dev
-    volumes:
-      - .:/workspace
-      - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
-      - ${HOME}/.ssh:/tmp/host_ssh:cached,z
-      - ./scripts/shell_init.sh:/etc/profile.d/twm_shell.sh:cached,ro
-    ports:
-      - "${VNC_PORT:-5900}:5900"   # VNC Server Port
-      - "${NOVNC_PORT:-6080}:6080" # noVNC Web UI Port
-    environment:
-      - DISPLAY=:1
-      - TERM=xterm-256color
-      - BASH_ENV=/etc/profile.d/twm_shell.sh
-      - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/workspace
-      - LIBGL_ALWAYS_SOFTWARE=1
-      - LIBGL_ALWAYS_INDIRECT=0
-      - MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-    ipc: host
-    shm_size: '4gb'
-    tty: true
+
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+
+    # Run as the host user. The workspace is bind-mounted, so without this every
+    # file the container writes into the repo -- checkpoints, __pycache__, generated
+    # HTML -- lands owned by root on the host and the host user then cannot delete
+    # or overwrite it without sudo. Must match the USER_ID/GROUP_ID the image was
+    # built with; the Makefile exports both for `build` and for `up`.
+    user: "${USER_ID:-1000}:${GROUP_ID:-1000}"
+
+    # tini as PID 1. start_vnc.sh backgrounds Xvfb, openbox, x11vnc and websockify;
+    # whatever is PID 1 inherits them when they are orphaned, and `tail -f` never
+    # calls wait(), so each restart of the VNC stack would leave permanent zombies
+    # that no `pkill` can clear. tini reaps them.
+    init: true
+
     stdin_open: true
+    tty: true
+    working_dir: /workspace
+
+    # Deliberately NOT `ipc: host`. Host IPC puts this container in the host's
+    # shared-memory and semaphore namespace alongside every other `ipc: host`
+    # container, so a crash here can leak /dev/shm segments that outlive it and are
+    # visible to its neighbours -- and it makes the shm_size below a no-op. A private
+    # IPC namespace with an explicit 4 GB /dev/shm gives JAX and Brax the room they
+    # need without sharing anything.
+    shm_size: '4gb'
+
+    # Resource ceiling. This machine co-hosts other robotics stacks, and XLA's CPU
+    # backend defaults to one worker thread per host core -- so an unbounded
+    # container turns `make train` into a machine-wide stall for everyone else.
+    # OMP_NUM_THREADS below is kept in step so the thread pool matches the cgroup
+    # it is actually allowed to run in; without that, XLA still spawns a thread per
+    # host core and they simply contend inside the quota.
+    cpus: ${TWM_CPUS:-8}
+    mem_limit: ${TWM_MEM:-24g}
+
+    volumes:
+      - .:/workspace:delegated
+      # Host git identity and SSH keys, read-only. The Makefile substitutes an empty
+      # stand-in when the host has neither, so Docker never creates a stray
+      # ~/.gitconfig directory or ~/.ssh directory on the host.
+      - ${HOST_GITCONFIG:-/dev/null}:/tmp/host.gitconfig:ro
+      - ${HOST_SSH_DIR:-./docker/empty}:/tmp/host_ssh:ro
+      - ./scripts/shell_init.sh:/etc/profile.d/twm_shell.sh:ro
+      # The container user's home, as a project-scoped named volume. Bazel's server
+      # and output base, the pip cache and the shell history all live under it, so
+      # they survive `docker compose down` yet never touch the host's ~/.cache and
+      # never collide with another stack's Bazel server. `make docker-clean` removes it.
+      - twm-home:/home/devuser
+
+    environment:
+      DISPLAY: "${VNC_DISPLAY:-:1}"
+      TERM: xterm-256color
+      BASH_ENV: /etc/profile.d/twm_shell.sh
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /workspace
+      HOME: /home/devuser
+      # Mesa software rendering (llvmpipe) for MuJoCo/Brax rendering under Xvfb.
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      LIBGL_ALWAYS_INDIRECT: "0"
+      MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+      # Keep the thread pools inside the cpus quota above.
+      OMP_NUM_THREADS: "${TWM_CPUS:-8}"
+      MKL_NUM_THREADS: "${TWM_CPUS:-8}"
+      # LINT.IfChange(vnc_env)
+      VNC_DISPLAY: "${VNC_DISPLAY:-:1}"
+      VNC_RESOLUTION: "${VNC_RESOLUTION:-1920x1080}"
+      # The container cannot otherwise know which host port it was published on, and
+      # start_vnc.sh would print its own internal port as if it were the browser URL
+      # -- sending you to whichever other container happens to hold 6080.
+      HOST_VNC_PORT: "${HOST_VNC_PORT:-5915}"
+      HOST_NOVNC_PORT: "${HOST_NOVNC_PORT:-6095}"
+      # LINT.ThenChange(//scripts/start_vnc.sh:vnc_env, //Makefile:vnc_ports, //.env.example)
+
+    # Only the HOST side (left of the colon) moves. The container side is fixed
+    # because start_vnc.sh binds 5900/6080 inside the container and `make tensorboard`
+    # runs on 6006 there.
+    #
+    # Defaults avoid the canonical 5900/5901/6080/6006/8888 that other VNC and
+    # notebook containers claim, so a fresh `make docker-up` does not fight a stack
+    # that is already running. BIND_ADDR keeps the password-less VNC on loopback.
+    # LINT.IfChange(vnc_ports)
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_VNC_PORT:-5915}:5900"
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_NOVNC_PORT:-6095}:6080"
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_TENSORBOARD_PORT:-6016}:6006"
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_JUPYTER_PORT:-8898}:8888"
+    # LINT.ThenChange(//.env.example, //Makefile:vnc_ports, //scripts/start_vnc.sh:vnc_env)
+
+# Project-scoped by Compose: the real name is ${COMPOSE_PROJECT_NAME}-twm-home.
+volumes:
+  twm-home:

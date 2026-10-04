@@ -1,0 +1,47 @@
+# ==============================================================================
+# Build context exclusions.
+#
+# Without this file `docker compose build` uploads the entire 764 MB working tree
+# to the daemon on every build -- including .git and the four third_party
+# submodules -- which is slow and fills the shared Docker builder cache that every
+# other project on this machine draws from. The Dockerfile only ever COPYs
+# pyproject.toml, README.md and two scripts, so the context can be almost empty.
+# ==============================================================================
+
+.git
+.gitmodules
+third_party/
+
+# Local caches and build output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.bazel/
+.bazel-cache/
+bazel-*
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Machine-local config -- must never be baked into an image layer
+.env
+
+# Generated artifacts; the workspace is bind-mounted at runtime anyway
+*.html
+*.png
+*.mp4
+checkpoints/
+outputs/
+wandb/
+
+# Assets are large and are read through the bind mount, not from the image
+assets/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store

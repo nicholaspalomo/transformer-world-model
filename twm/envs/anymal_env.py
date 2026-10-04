@@ -1,10 +1,12 @@
-"""Custom Brax environment for ANYmal B quadruped robot."""
+"""Custom Brax environment for ANYmal B quadruped robot with lower-level PD control."""
 
 import os
 from typing import Any
 
 import jax
 import jax.numpy as jnp
+
+from twm.envs.pd_controller import NOMINAL_JOINT_POS, JointPDController, PDControlOutput
 
 try:
     import brax  # noqa: F401
@@ -19,21 +21,32 @@ except ImportError:
 
 
 class ANYmalBEnv(PipelineEnv if _HAS_BRAX else object):
-    """JAX-native Brax environment for ANYmal B quadruped locomotion."""
+    """JAX-native Brax environment for ANYmal B quadruped locomotion with lower-level PD control."""
 
     def __init__(
         self,
         xml_path: str | None = None,
         backend: str = "positional",
         n_frames: int = 4,
+        target_velocity: float = 0.8,
+        kp: float = 50.0,
+        kd: float = 1.5,
+        action_scale: float = 0.3,
         **kwargs,
     ):
         if xml_path is None:
-            # Default to bundled repository asset
             curr_dir = os.path.dirname(os.path.abspath(__file__))
             xml_path = os.path.join(curr_dir, "../../assets/anybotics_anymal_b/scene.xml")
 
         self._backend_name = backend
+        self.target_velocity = target_velocity
+        self.pd_controller = JointPDController(
+            kp=kp,
+            kd=kd,
+            tau_max=40.0,
+            action_scale=action_scale,
+            nominal_qpos=NOMINAL_JOINT_POS,
+        )
 
         if _HAS_BRAX and os.path.exists(xml_path):
             sys = mjcf.load(xml_path)
@@ -42,8 +55,8 @@ class ANYmalBEnv(PipelineEnv if _HAS_BRAX else object):
             self._act_size = self.sys.act_size()
         else:
             self.sys = None
-            # ANYmal B: 12 actuated joint motors, 12 qpos joints + 12 qvel joints + base orientation (37 total obs)
-            self._obs_size = 37
+            # ANYmal B: 12 actuated joints, 35 observation dimensions
+            self._obs_size = 35
             self._act_size = 12
 
     # LINT.IfChange(env_specs)
@@ -63,85 +76,130 @@ class ANYmalBEnv(PipelineEnv if _HAS_BRAX else object):
     # LINT.ThenChange(//twm/envs/brax_wrapper.py:env_registry, //configs/env_anymal_b.yaml:env_config, //scripts/visualize_anymal.py:anymal_vis)
 
     def reset(self, rng: jax.Array) -> Any:
-        """Reset environment to initial nominal standing pose."""
+        """Reset environment to initial nominal standing pose with small random perturbation."""
         if not _HAS_BRAX or self.sys is None:
             obs = jax.random.normal(rng, (self.observation_size,))
             return None, obs
 
         rng_init, rng_noise = jax.random.split(rng)
 
-        # Nominal default standing joint positions for ANYmal B
-        # Joint order: LF (HAA, HFE, KFE), RF (HAA, HFE, KFE), LH (HAA, HFE, KFE), RH (HAA, HFE, KFE)
-        nominal_qpos = jnp.array(
+        # Full nominal qpos (7 root coords + 12 joint angles)
+        nominal_qpos = jnp.concatenate(
             [
-                0.0,
-                0.0,
-                0.55,  # Root pos (x, y, z)
-                1.0,
-                0.0,
-                0.0,
-                0.0,  # Root quat (w, x, y, z)
-                0.0,
-                0.4,
-                -0.8,  # LF leg
-                0.0,
-                0.4,
-                -0.8,  # RF leg
-                0.0,
-                -0.4,
-                0.8,  # LH leg
-                0.0,
-                -0.4,
-                0.8,  # RH leg
+                jnp.array([0.0, 0.0, 0.55, 1.0, 0.0, 0.0, 0.0], dtype=jnp.float32),
+                NOMINAL_JOINT_POS,
             ]
         )
 
-        # Small perturbation on initial joint angles
-        noise = jax.random.uniform(rng_noise, (12,), minval=-0.05, maxval=0.05)
-        q = nominal_qpos.at[7:].add(noise)
-        qd = jnp.zeros(self.sys.qd_size())
+        # Small random perturbation on initial joint angles
+        noise = jax.random.uniform(rng_noise, (12,), minval=-0.04, maxval=0.04)
+        q = nominal_qpos.at[7:19].add(noise)
+        qd = jnp.zeros(self.sys.qd_size(), dtype=jnp.float32)
 
         pipeline_state = self.pipeline_init(q, qd)
         obs = self._get_obs(pipeline_state)
-        reward = jnp.zeros(())
-        done = jnp.zeros(())
-        metrics = {"forward_vel": jnp.zeros(())}
+        reward = jnp.zeros((), dtype=jnp.float32)
+        done = jnp.zeros((), dtype=jnp.float32)
+        metrics = {
+            "forward_vel": jnp.zeros((), dtype=jnp.float32),
+            "torso_height": jnp.array(0.55, dtype=jnp.float32),
+            "tracking_reward": jnp.zeros((), dtype=jnp.float32),
+            "torque_penalty": jnp.zeros((), dtype=jnp.float32),
+            "upright_bonus": jnp.zeros((), dtype=jnp.float32),
+        }
 
         return State(pipeline_state, obs, reward, done, metrics)
 
     def step(self, state: Any, action: jax.Array, rng: jax.Array | None = None) -> Any:
-        """Step physics simulation forward given 12 joint torque/target actions."""
+        """Step physics simulation forward given 12 joint position targets tracked by PD controller."""
         if not _HAS_BRAX or self.sys is None:
             next_obs = jax.random.normal(rng or jax.random.PRNGKey(0), (self.observation_size,))
             reward = jnp.array(1.0, dtype=jnp.float32)
             done = jnp.array(0.0, dtype=jnp.float32)
             return None, next_obs, reward, done, {}
 
-        # Clip action limits [-1, 1]
-        action = jnp.clip(action, -1.0, 1.0)
-        pipeline_state = self.pipeline_step(state.pipeline_state, action)
+        # 1. Compute target joint positions q_target from action
+        q_target = self.pd_controller.compute_target_positions(action)
+
+        # 2. Extract current joint positions and velocities
+        current_q = state.pipeline_state.q[7:19]
+        current_qd = state.pipeline_state.qd[6:18]
+
+        # 3. Compute PD control output and torques
+        pd_out: PDControlOutput = self.pd_controller.compute_torques(
+            q_target, current_q, current_qd
+        )
+
+        # 4. Step physics simulation with joint position targets
+        pipeline_state = self.pipeline_step(state.pipeline_state, q_target)
         obs = self._get_obs(pipeline_state)
 
-        # Rewards: forward velocity along x-axis + upright bonus - joint torque effort
-        forward_vel = pipeline_state.qd[0]
-        torso_height = pipeline_state.x.pos[0, 2]  # base link z position
-        torque_cost = jnp.sum(jnp.square(action))
+        # 5. Reward computation for ANYmal quadruped walking
+        # Kinematic and state quantities
+        forward_vel = pipeline_state.qd[0]  # Base x-velocity (m/s)
+        lateral_vel = pipeline_state.qd[1]  # Base y-velocity (m/s)
+        vertical_vel = pipeline_state.qd[2]  # Base z-velocity (m/s)
+        ang_vel = pipeline_state.qd[3:6]  # Base angular velocities (roll, pitch, yaw)
 
-        # Reward shaping (WIP for locomotion)
-        reward = forward_vel * 1.5 + (torso_height > 0.3) * 0.5 - 0.01 * torque_cost
+        torso_height = pipeline_state.x.pos[0, 2]  # Base link z-position (m)
+        base_quat = pipeline_state.q[3:7]  # [qw, qx, qy, qz]
 
-        # Terminate if robot falls
-        done = jnp.where(torso_height < 0.2, 1.0, 0.0)
+        # Upright metric: projection of base z-axis onto global vertical
+        # qw^2 - qx^2 - qy^2 + qz^2 (dot product of body z-axis with world z-axis)
+        qx, qy = base_quat[1], base_quat[2]
+        upright_proj = 1.0 - 2.0 * (qx * qx + qy * qy)
 
-        metrics = {"forward_vel": forward_vel, "torso_height": torso_height}
+        # Reward components
+        # (a) Target linear velocity tracking reward (Gaussian kernel)
+        vel_error = forward_vel - self.target_velocity
+        tracking_reward = jnp.exp(-4.0 * jnp.square(vel_error))
+
+        # (b) Upright orientation reward
+        upright_bonus = jnp.clip(upright_proj, 0.0, 1.0)
+
+        # (c) Base height maintenance (target ~0.50m)
+        height_reward = jnp.exp(-25.0 * jnp.square(torso_height - 0.50))
+
+        # (d) Penalties
+        lateral_penalty = jnp.square(lateral_vel)
+        vertical_penalty = jnp.square(vertical_vel)
+        ang_vel_penalty = jnp.sum(jnp.square(ang_vel))
+        torque_penalty = jnp.mean(jnp.square(pd_out.torques / self.pd_controller.tau_max))
+        tracking_err_penalty = jnp.mean(jnp.square(pd_out.pos_error))
+
+        # Combined composite walking reward
+        reward = (
+            1.5 * tracking_reward
+            + 0.5 * upright_bonus
+            + 0.5 * height_reward
+            - 0.3 * lateral_penalty
+            - 0.2 * vertical_penalty
+            - 0.1 * ang_vel_penalty
+            - 0.05 * torque_penalty
+            - 0.1 * tracking_err_penalty
+        )
+
+        # Termination conditions (robot fallen, upside down, or height out of bounds)
+        is_fallen = (torso_height < 0.25) | (torso_height > 0.85) | (upright_proj < 0.3)
+        done = jnp.where(is_fallen, 1.0, 0.0)
+
+        metrics = {
+            "forward_vel": forward_vel,
+            "torso_height": torso_height,
+            "tracking_reward": tracking_reward,
+            "torque_penalty": torque_penalty,
+            "upright_bonus": upright_bonus,
+            "mean_torque": jnp.mean(jnp.abs(pd_out.torques)),
+        }
+
         return state.replace(
             pipeline_state=pipeline_state, obs=obs, reward=reward, done=done, metrics=metrics
         )
 
     def _get_obs(self, pipeline_state: Any) -> jax.Array:
-        """Extract continuous observation vector for Transformer World Model."""
-        # 12 joint positions
-        joint_pos = pipeline_state.q[7:19]
+        """Extract continuous observation vector for ANYmal control policy."""
+        # 12 joint positions relative to nominal standing pose
+        joint_pos = pipeline_state.q[7:19] - NOMINAL_JOINT_POS
         # 12 joint velocities
         joint_vel = pipeline_state.qd[6:18]
         # Root height (z)

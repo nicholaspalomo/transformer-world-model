@@ -14,9 +14,7 @@ py_test(
 py_test(
     name = "model_test",
     srcs = ["model_test.py"],
-    deps = [
-        "//twm:models",
-    ],
+    deps = ["//twm:models"],
 )
 
 py_test(
@@ -27,3 +25,28 @@ py_test(
         "//twm:planner",
     ],
 )
+
+# This file had no Bazel target and its name does not match the `*_test.py`
+# discovery pattern the Makefile and CI used, so the GRPO/diffusion suite -- the
+# largest test file in the repo -- ran nowhere at all.
+py_test(
+    name = "diffusion_grpo_test",
+    srcs = ["test_diffusion_grpo.py"],
+    main = "test_diffusion_grpo.py",
+    deps = [
+        "//twm:algorithms",
+        "//twm:envs",
+        "//twm:models",
+        "//twm:utils",
+    ],
+)
+
+py_test(
+    name = "checkpoint_test",
+    srcs = ["checkpoint_test.py"],
+    deps = [
+        "//twm:models",
+        "//twm:utils",
+    ],
+)
+

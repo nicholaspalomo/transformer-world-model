@@ -7,7 +7,10 @@ name = "twm"
 version = "0.1.0"
 description = "Transformer World Model with MPPI Control in JAX"
 readme = "README.md"
+# LINT.IfChange(requires_python)
 requires-python = ">=3.10"
+# LINT.ThenChange(//MODULE.bazel:python_version, //.github/workflows/ci.yml:python_version)
+
 # LINT.IfChange(dependencies)
 dependencies = [
     "jax>=0.4.20",
@@ -34,7 +37,7 @@ dev = [
     "yapf>=0.40.0",
     "pre-commit>=3.7.0",
 ]
-# LINT.ThenChange(//MODULE.bazel:dependencies)
+# LINT.ThenChange(//MODULE.bazel:dependencies, //requirements_lock.txt:lock)
 
 [tool.setuptools.packages.find]
 where = ["."]

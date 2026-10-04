@@ -75,9 +75,9 @@ def check_file(rel_path):
             targets = parse_targets(then_match.group(1))
             for target in targets:
                 if ":" in target:
-                    t_file, t_label = target.split(":", 1)
+                    t_file, _ = target.split(":", 1)
                 else:
-                    t_file, t_label = target, None
+                    t_file = target
 
                 if t_file:
                     target_full_path = os.path.join(REPO_ROOT, t_file)

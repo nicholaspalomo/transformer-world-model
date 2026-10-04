@@ -1,5 +1,37 @@
-# Google3-style Bazel configuration
+# ==============================================================================
+# Bazel configuration.
+# ==============================================================================
+
+# --enable_bzlmod is the default from Bazel 7 on; MODULE.bazel is the source of truth.
 build --enable_bzlmod
-build --python_path=python3
+
+# NOT --python_path: MODULE.bazel now registers a hermetic 3.10 toolchain via
+# python.toolchain(), and pinning --python_path=python3 would override it with
+# whatever interpreter happens to be on PATH -- which on this machine is 3.14.
+
 build --show_timestamps
+
+# --- Keeping out of the way of other checkouts --------------------------------
+# Convenience symlinks go in .bazel/ instead of scattering bazel-bin, bazel-out
+# and bazel-<workspace> across the repo root, where ruff, pytest, `find` and the
+# Docker build context all follow them straight into the output base.
+build --symlink_prefix=.bazel/
+
+# Deliberately no --disk_cache / --repository_cache override. Bazel already keys
+# its output base on a hash of the workspace path under ~/.cache/bazel, so two
+# checkouts -- and two different projects -- never share build state. Pointing
+# those caches at %workspace% does not work either: Bazel does not substitute
+# %workspace% inside flag values (only in `import`/`try-import` lines), so the
+# flag resolved to a literal "%workspace%" directory inside the repo and Bazel
+# refused to start. Inside the dev container the whole of $HOME is a
+# project-scoped named volume, so the cache is isolated there by construction.
+
+# --- Reproducibility ----------------------------------------------------------
+build --incompatible_strict_action_env
+
+# --- Tests --------------------------------------------------------------------
 test --test_output=errors
+test --test_summary=detailed
+
+# Machine-local overrides (not tracked).
+try-import %workspace%/.bazelrc.user

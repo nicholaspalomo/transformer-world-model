@@ -224,6 +224,30 @@ MODULE.bazel.lock
 
 # Generated simulation & rollout artifacts
 *.png
+*.html
 anymal_rollout.html
+anymal_diffusion_walk.html
 rollout_comparison.png
 anymal_kinematics.png
+anymal_diffusion_kinematics.png
+
+# ------------------------------------------------------------------ this repo
+# Machine-local Docker Compose overrides: host ports, project name, credential
+# paths. Deliberately not tracked -- these are per-machine choices. See .env.example.
+.env
+
+# Bazel convenience symlinks (--symlink_prefix=.bazel/) and the repo-local disk cache
+.bazel/
+.bazel-cache/
+
+# VNC / container scratch
+.twm-vnc/
+
+# Generated experiment & pipeline artifacts (regenerate with `make pipeline` / `make visualize*`)
+*.npz
+*.npy
+data/
+checkpoints/
+runs/
+outputs/
+wandb/
